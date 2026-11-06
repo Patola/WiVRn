@@ -23,6 +23,7 @@
 #include "application.h"
 #include "spdlog/spdlog.h"
 #include <android/native_activity.h>
+#include <string_view>
 #include <sys/system_properties.h>
 
 #include "android/jnipp.h"
@@ -71,6 +72,16 @@ std::shared_ptr<void> wifi_lock::get_wifi_lock()
 	std::lock_guard lock(mutex);
 	if (auto l = wifi_weak.lock())
 		return l;
+
+	// Allow comparing the firmware's normal Wi-Fi policy with low-latency mode
+	// without rebuilding or changing the saved client configuration.
+	char mode[PROP_VALUE_MAX]{};
+	__system_property_get("debug.wivrn.wifi_lock", mode);
+	if (std::string_view(mode) == "off")
+	{
+		spdlog::warn("WifiLock disabled by debug.wivrn.wifi_lock=off");
+		return nullptr;
+	}
 
 	wifi_.call<void>("acquire");
 	print_wifi();
