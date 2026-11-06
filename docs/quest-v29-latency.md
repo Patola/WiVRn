@@ -103,6 +103,12 @@ so this is a diagnostic measurement rather than a calibrated Wi-Fi benchmark.
 The reverse test received 273,330,176 bytes in 8.018 seconds, about 272.7 Mbit/s,
 from Quest to PC. The observed asymmetry is therefore stronger evidence than
 an assumption that a shared Ethernet segment is simply limited to 100 Mbit/s.
+A follow-up receiver compiled with the Android NDK, using `recv` directly
+without `nc` or `dd`, received 107,145,664 bytes in 8.364 seconds, about
+102.5 Mbit/s (the PC sender measured 107.0 Mbit/s over its sending interval).
+This reproduced the downlink result without the shell tools' copying path;
+it is still a single-flow diagnostic measurement, not proof of the link's
+maximum possible capacity.
 
 The OS identifies WiVRn as an immersive app and puts its process in the TOP
 foreground state. `dumpsys wifi` confirms a type-4 WiVRn lock and disabled
