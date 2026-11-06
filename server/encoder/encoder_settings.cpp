@@ -205,7 +205,9 @@ class prober
 				return res;
 			}
 			case av1: {
-				auto res = vk.has_device_ext(VK_KHR_VIDEO_ENCODE_AV1_EXTENSION_NAME) and flags & vk::VideoCodecOperationFlagBitsKHR::eEncodeAv1;
+				auto res = vk.has_device_ext(VK_KHR_VIDEO_ENCODE_AV1_EXTENSION_NAME) and
+				           std::get<vk::PhysicalDeviceVideoEncodeAV1FeaturesKHR>(vk.feat).videoEncodeAV1 and
+				           flags & vk::VideoCodecOperationFlagBitsKHR::eEncodeAv1;
 				if (not res)
 					U_LOG_I("GPU does not support AV1 Vulkan video encode");
 				return res;

@@ -26,68 +26,14 @@
 #include <bit>
 #include <cstring>
 #include <limits>
-#include <numeric>
 
 namespace
 {
-uint32_t align_div(uint32_t value, uint32_t divisor)
-{
-	return (value + divisor - 1) / divisor;
-}
-
 uint8_t bits_for(uint32_t value)
 {
 	return std::max<uint8_t>(std::bit_width(value), 1);
 }
 
-// AV1 spec, annex A.3 "Levels", limited to the levels that are actually defined.
-// MaxDisplayRate is omitted, it is always smaller than MaxDecodeRate and we never
-// display more samples than we decode.
-struct av1_level_limits
-{
-	StdVideoAV1Level level;
-	uint32_t max_pic_size; // samples
-	uint32_t max_h_size;   // samples
-	uint32_t max_v_size;   // samples
-	uint64_t max_decode_rate;
-};
-
-constexpr av1_level_limits av1_levels[] = {
-        {STD_VIDEO_AV1_LEVEL_2_0, 147456, 2048, 1152, 5529600},
-        {STD_VIDEO_AV1_LEVEL_2_1, 278784, 2816, 1584, 10454400},
-        {STD_VIDEO_AV1_LEVEL_3_0, 665856, 4352, 2448, 24969600},
-        {STD_VIDEO_AV1_LEVEL_3_1, 1065024, 5504, 3096, 39938400},
-        {STD_VIDEO_AV1_LEVEL_4_0, 2359296, 6144, 3456, 77856768},
-        {STD_VIDEO_AV1_LEVEL_4_1, 2359296, 6144, 3456, 155713536},
-        {STD_VIDEO_AV1_LEVEL_5_0, 8912896, 8192, 4352, 273715200},
-        {STD_VIDEO_AV1_LEVEL_5_1, 8912896, 8192, 4352, 547430400},
-        {STD_VIDEO_AV1_LEVEL_5_2, 8912896, 8192, 4352, 1094860800},
-        {STD_VIDEO_AV1_LEVEL_5_3, 8912896, 8192, 4352, 1176502272},
-        {STD_VIDEO_AV1_LEVEL_6_0, 35651584, 16384, 8704, 1176502272},
-        {STD_VIDEO_AV1_LEVEL_6_1, 35651584, 16384, 8704, 2189721600},
-        {STD_VIDEO_AV1_LEVEL_6_2, 35651584, 16384, 8704, 4379443200},
-        {STD_VIDEO_AV1_LEVEL_6_3, 35651584, 16384, 8704, 4706009088},
-};
-
-// Smallest level able to carry the stream, clamped to what the encoder supports.
-// Reporting the driver's maximum instead would make decoders reject or downgrade
-// the stream for no reason.
-StdVideoAV1Level select_level(uint32_t width, uint32_t height, float fps, StdVideoAV1Level max_level)
-{
-	const uint64_t pic_size = uint64_t(width) * height;
-	const uint64_t decode_rate = uint64_t(double(pic_size) * std::max(fps, 1.f));
-
-	for (const auto & l: av1_levels)
-	{
-		if (l.level > max_level)
-			break;
-		if (pic_size <= l.max_pic_size and width <= l.max_h_size and height <= l.max_v_size and decode_rate <= l.max_decode_rate)
-			return l.level;
-	}
-
-	U_LOG_W("AV1: no level supports %ux%u@%.1f, falling back to the encoder maximum", width, height, fps);
-	return max_level;
-}
 } // namespace
 
 wivrn::video_encoder_vulkan_av1::video_encoder_vulkan_av1(
@@ -99,7 +45,8 @@ wivrn::video_encoder_vulkan_av1::video_encoder_vulkan_av1(
         const encoder_settings & settings) :
         video_encoder_vulkan(vk, video_caps, encode_caps, stream_idx, settings)
 {
-	if (not vk.has_device_ext(VK_KHR_VIDEO_ENCODE_AV1_EXTENSION_NAME))
+	if (not vk.has_device_ext(VK_KHR_VIDEO_ENCODE_AV1_EXTENSION_NAME) or
+	    not std::get<vk::PhysicalDeviceVideoEncodeAV1FeaturesKHR>(vk.feat).videoEncodeAV1)
 		throw std::runtime_error("Vulkan video encode AV1 extension not available");
 
 	if (settings.bit_depth != 8 && settings.bit_depth != 10)
@@ -107,7 +54,9 @@ wivrn::video_encoder_vulkan_av1::video_encoder_vulkan_av1(
 
 	configure_from_caps(encode_av1_caps);
 
-	level = select_level(aligned_extent.width, aligned_extent.height, settings.fps, encode_av1_caps.maxLevel);
+	max_level = encode_av1_caps.maxLevel;
+	explicit_operating_point = encode_av1_caps.maxOperatingPoints > 0;
+	auto selected = choose_av1_operating_point(aligned_extent.width, aligned_extent.height, settings.fps, rate_control ? rate_control_layer.maxBitrate : settings.bitrate, max_level);
 
 	color_config = {
 	        .flags = {
@@ -170,44 +119,11 @@ wivrn::video_encoder_vulkan_av1::video_encoder_vulkan_av1(
 	                .initial_display_delay_present_for_this_op = 0,
 	        },
 	        .operating_point_idc = 0,
-	        .seq_level_idx = static_cast<uint8_t>(level),
-	        .seq_tier = 0,
+	        .seq_level_idx = static_cast<uint8_t>(selected.level),
+	        .seq_tier = selected.tier,
 	        .decoder_buffer_delay = 0,
 	        .encoder_buffer_delay = 0,
 	        .initial_display_delay_minus_1 = 0,
-	};
-
-	const uint32_t sb_cols = align_div(aligned_extent.width, superblock_size);
-	const uint32_t sb_rows = align_div(aligned_extent.height, superblock_size);
-	const uint32_t mi_cols = align_div(aligned_extent.width, 4);
-	const uint32_t mi_rows = align_div(aligned_extent.height, 4);
-	const bool uniform_tile_spacing = bool(std_flags & vk::VideoEncodeAV1StdFlagBitsKHR::eUniformTileSpacingFlagSet);
-
-	// A single tile is enough for the resolutions WiVRn streams, but AV1 caps a tile at 4096
-	// samples wide (annex A.3), a wider stream would not be decodable.
-	if (sb_cols * superblock_size > 4096)
-		throw std::runtime_error("av1 encoder supports at most 4096 samples per tile row");
-
-	mi_col_starts = {0u, static_cast<uint16_t>(mi_cols)};
-	mi_row_starts = {0u, static_cast<uint16_t>(mi_rows)};
-	if (!tile_widths_sb.empty())
-		tile_widths_sb[0] = static_cast<uint16_t>(sb_cols - 1);
-	if (!tile_heights_sb.empty())
-		tile_heights_sb[0] = static_cast<uint16_t>(sb_rows - 1);
-
-	tile_info = {
-	        .flags = {
-	                .uniform_tile_spacing_flag = uniform_tile_spacing ? 1u : 0u,
-	        },
-	        .TileCols = 1,
-	        .TileRows = 1,
-	        .context_update_tile_id = 0,
-	        .tile_size_bytes_minus_1 = 0,
-	        .reserved1 = {},
-	        .pMiColStarts = uniform_tile_spacing ? nullptr : mi_col_starts.data(),
-	        .pMiRowStarts = uniform_tile_spacing ? nullptr : mi_row_starts.data(),
-	        .pWidthInSbsMinus1 = uniform_tile_spacing ? nullptr : tile_widths_sb.data(),
-	        .pHeightInSbsMinus1 = uniform_tile_spacing ? nullptr : tile_heights_sb.data(),
 	};
 
 	quantization = {
@@ -281,13 +197,13 @@ void wivrn::video_encoder_vulkan_av1::configure_from_caps(const vk::VideoEncodeA
 	std_flags = encode_av1_caps.stdSyntaxFlags;
 	if (encode_av1_caps.superblockSizes & vk::VideoEncodeAV1SuperblockSizeFlagBitsKHR::e64)
 		superblock_size = 64;
-	else
+	else if (encode_av1_caps.superblockSizes & vk::VideoEncodeAV1SuperblockSizeFlagBitsKHR::e128)
 		superblock_size = 128;
+	else
+		throw std::runtime_error("AV1 encoder has no supported superblock size");
 
 	single_reference_name_mask = encode_av1_caps.singleReferenceNameMask;
 	max_single_reference_count = encode_av1_caps.maxSingleReferenceCount;
-	max_q_index = encode_av1_caps.maxQIndex;
-	min_q_index = encode_av1_caps.minQIndex;
 
 	// The single reference of an inter frame must use a reference name the encoder
 	// advertises, bit i standing for LAST_FRAME + i.
@@ -469,23 +385,34 @@ std::unique_ptr<wivrn::video_encoder_vulkan_av1> wivrn::video_encoder_vulkan_av1
 	return self;
 }
 
-void wivrn::video_encoder_vulkan_av1::send_idr_data()
+std::vector<uint8_t> wivrn::video_encoder_vulkan_av1::get_idr_data()
 {
-	U_LOG_D("AV1: send_idr_data() called");
-	// Fetch encoded session parameters (sequence header OBU).
-	try
-	{
-		auto data = get_encoded_parameters(nullptr);
-		U_LOG_D("AV1: get_encoded_parameters returned %zu bytes", data.size());
-		if (!data.empty())
-			SendData(data, false, true);
-		else
-			U_LOG_W("AV1: get_encoded_parameters returned empty data");
-	}
-	catch (const std::exception & e)
-	{
-		U_LOG_E("AV1: Exception in get_encoded_parameters: %s", e.what());
-	}
+	auto data = get_encoded_parameters(nullptr);
+	if (data.empty())
+		throw std::runtime_error("Vulkan AV1 encoder returned no sequence header");
+	return data;
+}
+
+void wivrn::video_encoder_vulkan_av1::rate_control_updated()
+{
+	if (not explicit_operating_point)
+		return;
+	av1_operating_point current{StdVideoAV1Level(operating_point.seq_level_idx), operating_point.seq_tier};
+	auto selected = choose_av1_operating_point(
+	        aligned_extent.width, aligned_extent.height, double(rate_control_layer.frameRateNumerator) / rate_control_layer.frameRateDenominator, rate_control_layer.maxBitrate, max_level, current);
+	if (selected == current)
+		return;
+
+	operating_point.seq_level_idx = selected.level;
+	operating_point.seq_tier = selected.tier;
+	vk::VideoEncodeAV1SessionParametersCreateInfoKHR params{
+	        .pNext = &quality_level_info,
+	        .pStdSequenceHeader = &seq_header,
+	        .stdOperatingPointCount = 1,
+	        .pStdOperatingPoints = &operating_point,
+	};
+	replace_session_parameters(&params);
+	U_LOG_I("AV1: updated sequence level to %u.%u, tier %u", 2 + (selected.level >> 2), selected.level & 3, selected.tier);
 }
 
 void * wivrn::video_encoder_vulkan_av1::encode_info_next(uint32_t frame_num, size_t slot, std::optional<int32_t> ref_slot)
@@ -557,9 +484,13 @@ void * wivrn::video_encoder_vulkan_av1::encode_info_next(uint32_t frame_num, siz
 	std_picture_info.delta_q_res = 0;
 	std_picture_info.delta_lf_res = 0;
 	std::fill(std_picture_info.ref_order_hint, std_picture_info.ref_order_hint + STD_VIDEO_AV1_NUM_REF_FRAMES, 0);
-	std::fill(std_picture_info.ref_frame_idx, std_picture_info.ref_frame_idx + STD_VIDEO_AV1_REFS_PER_FRAME, static_cast<int8_t>(-1));
+	// Even unused reference names need valid AV1 syntax. Map all of them to
+	// the acknowledged frame; Vulkan still enables only ref_name_index for prediction.
+	std::fill(std_picture_info.ref_frame_idx, std_picture_info.ref_frame_idx + STD_VIDEO_AV1_REFS_PER_FRAME, static_cast<int8_t>(ref_slot.value_or(0)));
 	std::fill(std_picture_info.delta_frame_id_minus_1, std_picture_info.delta_frame_id_minus_1 + STD_VIDEO_AV1_REFS_PER_FRAME, 0);
-	std_picture_info.pTileInfo = &tile_info;
+	// Let the implementation select a legal tile layout for its capabilities
+	// and the AV1 maximum tile width/area, including streams wider than 4096.
+	std_picture_info.pTileInfo = nullptr;
 	std_picture_info.pQuantization = &quantization;
 	std_picture_info.pSegmentation = (std_picture_info.flags.segmentation_enabled) ? &segmentation : nullptr;
 	std_picture_info.pLoopFilter = &loop_filter;
@@ -593,9 +524,10 @@ void * wivrn::video_encoder_vulkan_av1::encode_info_next(uint32_t frame_num, siz
 	// Note: WiVRn currently doesn't support B-frames, so only INTRA and PREDICTIVE groups
 	picture_info.rateControlGroup = is_keyframe ? vk::VideoEncodeAV1RateControlGroupKHR::eIntra
 	                                            : vk::VideoEncodeAV1RateControlGroupKHR::ePredictive;
-	// Must be zero while rate control is active, and within the reported range otherwise.
-	// VUID-vkCmdEncodeVideoKHR-constantQIndex-10320, VUID-vkCmdEncodeVideoKHR-constantQIndex-10321
-	picture_info.constantQIndex = rate_control_enabled ? 0 : std::midpoint(min_q_index, max_q_index);
+	// The base encoder uses CBR, VBR, or DEFAULT, never DISABLED. All three
+	// require zero here, including drivers without explicit rate control.
+	// VUID-vkCmdEncodeVideoKHR-constantQIndex-10320
+	picture_info.constantQIndex = 0;
 	picture_info.pStdPictureInfo = &std_picture_info;
 	picture_info.referenceNameSlotIndices = reference_name_slot_indices;
 	picture_info.generateObuExtensionHeader = VK_FALSE;
@@ -613,12 +545,14 @@ void * wivrn::video_encoder_vulkan_av1::encode_info_next(uint32_t frame_num, siz
 	return &picture_info;
 }
 
-const void * wivrn::video_encoder_vulkan_av1::begin_coding_next(const void * next)
+const void * wivrn::video_encoder_vulkan_av1::begin_coding_next(const void * next, bool keyframe)
 {
 	if (not gop_info)
 		return next;
 
 	gop_info->pNext = next;
+	gop_info->gopRemainingIntra = keyframe ? 1 : 0;
+	gop_info->gopRemainingPredictive = std::numeric_limits<uint32_t>::max() - gop_info->gopRemainingIntra;
 	return &*gop_info;
 }
 
