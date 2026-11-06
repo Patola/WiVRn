@@ -19,20 +19,24 @@
 
 #pragma once
 
+#include "encoder/encoder_settings.h"
 #include "ffmpeg_helper.h"
 #include "utils/gpu_timestamp_pool.h"
 #include "video_encoder_ffmpeg.h"
 
 #include <array>
+#include <chrono>
+#include <optional>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
 
 namespace wivrn
 {
-struct encoder_settings;
-
 class video_encoder_va : public video_encoder_ffmpeg
 {
+	encoder_settings settings;
+	std::optional<encoder_settings> pending_settings;
+	std::chrono::steady_clock::time_point settings_deadline;
 	vk_bundle & vk;
 	vk::raii::CommandPool cmd_pool;
 	struct in_t
@@ -45,6 +49,7 @@ class video_encoder_va : public video_encoder_ffmpeg
 		vk::raii::Image chroma = nullptr;
 		std::vector<vk::raii::DeviceMemory> mem;
 	};
+	av_buffer_ptr vaapi_frame_ctx;
 	av_buffer_ptr drm_frame_ctx;
 	std::array<in_t, num_slots> in;
 
@@ -57,5 +62,7 @@ public:
 
 protected:
 	void push_frame(bool idr, uint8_t slot) override;
+	bool reconfigure(uint32_t bitrate, float framerate) override;
+	av_codec_context_ptr open_encoder(const encoder_settings & settings);
 };
 } // namespace wivrn

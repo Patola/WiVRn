@@ -17,24 +17,96 @@ Both the old and new servers use the existing VAAPI / AV1 10-bit configuration.
 
 | Test | Result |
 | --- | --- |
-| Installed 26.9, Wi-Fi with UDP video | Severe lag; repeated missing video shards and IDR requests/timeouts |
+| Installed 26.9, Wi-Fi with UDP video, initialized at 140 Mbit/s | Severe lag; repeated missing video shards and IDR requests/timeouts |
 | Installed 26.9, Wi-Fi with TCP-only video | Severe lag; TCP send queue reached about 4.5 MB |
 | Installed 26.9, USB with TCP-only video | Smooth, using the same AV1 hardware decoders |
-| Source build, Wi-Fi at 50 Mbit/s, Wi-Fi lock disabled | Smooth |
-| Same source build, Wi-Fi at 50 Mbit/s, normal Wi-Fi lock | Smooth |
-| Same source build, Wi-Fi at a confirmed 140 Mbit/s, Auto/AV1, normal Wi-Fi lock | Smooth, confirmed by the user |
+| Source build, initialized at 50 Mbit/s, Wi-Fi lock disabled | Smooth |
+| Same source build, initialized at 50 Mbit/s, normal Wi-Fi lock | Smooth |
+| Same session, requested bitrate later changed to 140 Mbit/s | Reported smooth, but the requested bitrate did not prove the encoder rate changed |
+| Source build restarted with AV1 initialized at 140 Mbit/s | Severe lag again |
+| User's Envision server, launched directly without Envision environment, initialized at 140 Mbit/s | Severe lag |
+| Same unmodified Envision server restarted with AV1 initialized at 50 Mbit/s | Smooth |
+| Patched server, live change from 140 back to 50 Mbit/s | Smooth again without restarting; WayVR and the thumbstick menu work |
 
-The 140 Mbit/s setting was subsequently verified using the server's D-Bus
-`Bitrate` property. Android's media resource manager still listed three
-`c2.qti.av1.decoder` instances with the client codec setting on Auto: the
-server's explicit VAAPI/AV1 configuration selects AV1 in that mode too.
-The fresh, matched source build therefore resolves the reproduced symptoms
-without disabling the Wi-Fi lock or changing decoder parameters. The specific
-upstream change or firmware interaction responsible has not been isolated.
+**Correction to the initial conclusion:** the diagnostic build is not itself a
+fix for 140 Mbit/s. Its earlier successful session had initialized VAAPI at
+50 Mbit/s. The server's D-Bus `Bitrate` property reports the requested bitrate;
+it is not a measurement of the encoder's actual output. Restarting that same
+build with 140 Mbit/s reproduces the problem. The unmodified Envision build
+also works when initialized at 50 Mbit/s.
+
+The client codec setting on Auto still uses AV1: Android's media resource
+manager lists three `c2.qti.av1.decoder` instances, and the server explicitly
+selects VAAPI/AV1 10-bit.
+
+## Server findings
+
+The user's executable is:
+
+```text
+/home/patola/.local/share/envision/prefixes/eecf1eef-a666-4025-9ca8-b9463956231b/bin/wivrn-server
+```
+
+Its checkout is the `xrservice/` subdirectory of:
+
+```text
+/home/patola/.local/share/envision/eecf1eef-a666-4025-9ca8-b9463956231b/
+```
+
+The installed and build-tree executables have identical SHA-256 hashes.
+Envision pins `GIT_DESC=v26.9-89-g75e2df57` and `GIT_COMMIT=75e2df57...` in
+its CMake cache, although the source checkout is at `869b0ce6`. Its `server/`
+and `common/` sources are byte-for-byte identical to this branch's initial
+sources. The patched Monado compositor/utilities match too. Build differences
+include bundled Boost 1.89 versus system Boost 1.92, and enabled debug GUI and
+Lighthouse support; those differences do not explain the cold-start bitrate
+comparison. Envision's library search path does not change resolved libraries.
+
+A concrete server bug was found in live VAAPI bitrate changes:
+
+- `video_encoder_ffmpeg::encode` previously only changed the already-open
+  `AVCodecContext::bit_rate` and `rc_max_rate` fields.
+- FFmpeg 9.0.2 initializes VAAPI rate-control parameters in
+  `vaapi_encode_init_rate_control`, called by `ff_vaapi_encode_init`.
+  Merely changing the public fields does not rebuild those parameters.
+- This branch reopens the VAAPI codec context when bitrate or frame rate
+  changes, preserves the hardware frame pool and Vulkan imports, and requests
+  a new keyframe. Unchanged settings do not reopen the encoder. Slider changes
+  are coalesced until the requested value has been stable for 200 ms, to avoid
+  reopening the hardware context for every intermediate slider value.
+
+The user verified that 50 → 140 → 50 restores smoothness without restarting
+the patched server. The server log confirms the encoder contexts were reopened
+at the changed per-eye rates.
+
+See the [FFmpeg VAAPI source](https://github.com/FFmpeg/FFmpeg/blob/n9.0.2/libavcodec/vaapi_encode.c)
+for the initialization of `rc_params` and its global rate-control parameters.
+
+This explains why decreasing the requested bitrate within an existing session
+could fail to reduce actual traffic, and why the first comparison looked like
+a server-build fix. It does not yet explain precisely what changed in the
+Quest firmware or establish why the current wireless path fails at 140 Mbit/s.
+
+The packet sender transmits video shards in bursts; a capture of the laggy
+140 Mbit/s session contained a burst of 146 UDP packets with gaps below 300 us.
+An optional pacing experiment at 200 Mbit/s reduced observed bursts to a
+99th-percentile size of 9 packets (maximum 18), but 140 Mbit/s remained severely
+laggy. That experimental code was removed.
+
+An independent TCP transfer from the PC to an Android `toybox nc`/`dd` receiver
+on the Quest moved 107,952,480 bytes in 8.008 seconds, approximately 107.8 Mbit/s,
+with no WiVRn server or video stream running. This is below the requested
+140 Mbit/s video rate in that test. It supports a current throughput limitation
+on the wireless path but does not prove a particular physical link speed,
+firmware defect, or access-point fault. The receiver is an Android shell tool,
+so this is a diagnostic measurement rather than a calibrated Wi-Fi benchmark.
+The reverse test received 273,330,176 bytes in 8.018 seconds, about 272.7 Mbit/s,
+from Quest to PC. The observed asymmetry is therefore stronger evidence than
+an assumption that a shared Ethernet segment is simply limited to 100 Mbit/s.
 
 The OS identifies WiVRn as an immersive app and puts its process in the TOP
 foreground state. `dumpsys wifi` confirms a type-4 WiVRn lock and disabled
-Wi-Fi power saving during the normal-lock test. The PC Ethernet link reports
+Wi-Fi power saving while the headset is worn. The PC Ethernet link reports
 1 Gbit/s with no NIC errors; the headset reports Wi-Fi 6, a 1200 Mbit/s link,
 and roughly -20 dBm signal strength. These observations do not exclude
 firmware or access-point problems under streaming traffic.
@@ -42,16 +114,16 @@ firmware or access-point problems under streaming traffic.
 The hardware decoders report `output.delay.value` of 15–17 during both laggy
 Wi-Fi and smooth USB sessions. This field alone does not identify the cause.
 The Wi-Fi-lock comparison also does **not** establish the lock as the cause.
+The previously mentioned upstream packet-fragmentation and IDR-recovery
+changes are already present in both current checkouts; they do not explain
+the difference between those builds. USB also changes the transport to TCP,
+so that comparison alone cannot identify a specific Wi-Fi driver defect.
 
-Relevant existing upstream changes since 26.9 include:
-
-- `e8c92a72`: prevent video-packet fragmentation when appending timing data.
-- `2fc4708b`: fix keyframe-recovery races, track decoder acknowledgements,
-  and request a keyframe when decoder output stops advancing.
-
-These are candidates, not individually proven fixes for this headset.
-USB also changes the transport to TCP, so that comparison alone cannot
-identify a specific Wi-Fi driver defect.
+During development, building only `wivrn-server` after a commit left the OpenXR
+runtime library at the previous Git version. Monado then rejected WayVR with
+`ipc_client_check_git_tag` / `XR_ERROR_RUNTIME_UNAVAILABLE`. A full build updated
+both components and restored WayVR. Always rebuild all targets after changing
+commits; do not work around this by disabling the IPC version check.
 
 Changing the client codec setting from Auto to forced AV1 during an existing
 server session changes the advertised codec list. The resume compatibility

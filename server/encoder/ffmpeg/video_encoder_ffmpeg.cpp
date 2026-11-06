@@ -70,17 +70,10 @@ bool video_encoder_ffmpeg::once = set_log_level();
 std::optional<wivrn::video_encoder::data> video_encoder_ffmpeg::encode(uint8_t slot, uint64_t frame_index)
 {
 	auto & idr_handler = (default_idr_handler &)*idr;
-	if (auto bitrate = pending_bitrate.exchange(0))
-	{
+	auto bitrate = pending_bitrate.exchange(0);
+	auto framerate = pending_framerate.exchange(0);
+	if (reconfigure(bitrate, framerate))
 		idr_handler.reset();
-		encoder_ctx->bit_rate = bitrate;
-		encoder_ctx->rc_max_rate = bitrate;
-	}
-	if (auto framerate = pending_framerate.exchange(0))
-	{
-		idr_handler.reset();
-		encoder_ctx->framerate = AVRational{.num = int(framerate * 1000), .den = 1000};
-	}
 
 	bool is_idr = idr_handler.get_type(frame_index, stream_idx) == default_idr_handler::frame_type::i;
 

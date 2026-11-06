@@ -173,12 +173,13 @@ video_encoder_va::video_encoder_va(wivrn::vk_bundle & vk,
                                    const wivrn::encoder_settings & settings,
                                    uint8_t stream_idx) :
         video_encoder_ffmpeg(vk, stream_idx, settings),
+        settings(settings),
         vk{vk},
         cmd_pool{make_cmd_pool(vk, stream_idx)}
 {
 	auto command_buffers = vk.device.allocateCommandBuffers(
 	        {.commandPool = *cmd_pool,
-	         .commandBufferCount = num_slots});
+		 .commandBufferCount = num_slots});
 	for (size_t i = 0; i < num_slots; ++i)
 	{
 		in[i].cmd = std::move(command_buffers[i]);
@@ -216,7 +217,7 @@ video_encoder_va::video_encoder_va(wivrn::vk_bundle & vk,
 			break;
 	}
 
-	auto vaapi_frame_ctx = make_hwframe_ctx(vaapi_hw_ctx.get(), AV_PIX_FMT_VAAPI, sw_format, extent.width, extent.height);
+	vaapi_frame_ctx = make_hwframe_ctx(vaapi_hw_ctx.get(), AV_PIX_FMT_VAAPI, sw_format, extent.width, extent.height);
 	assert(av_pix_fmt_count_planes(sw_format) == 2);
 
 	err = av_hwframe_ctx_create_derived(&tmp,
@@ -230,70 +231,7 @@ video_encoder_va::video_encoder_va(wivrn::vk_bundle & vk,
 	}
 	drm_frame_ctx = av_buffer_ptr(tmp);
 
-	const char * encoder_name = encoder(settings.codec);
-	const AVCodec * codec = avcodec_find_encoder_by_name(encoder_name);
-	if (codec == nullptr)
-	{
-		throw std::runtime_error(std::string("Failed to find encoder ") + encoder_name);
-	}
-
-	encoder_ctx = av_codec_context_ptr(avcodec_alloc_context3(codec));
-	if (not encoder_ctx)
-	{
-		throw std::runtime_error("failed to allocate VAAPI encoder");
-	}
-
-	AVDictionary * opts = nullptr;
-	av_dict_set(&opts, "async_depth", "1", 0);
-	switch (settings.codec)
-	{
-		case video_codec::h264:
-			encoder_ctx->profile = AV_PROFILE_H264_CONSTRAINED_BASELINE;
-			av_dict_set(&opts, "coder", "cavlc", 0);
-			av_dict_set(&opts, "rc_mode", "CBR", 0);
-			break;
-		case video_codec::h265:
-			// bit_depth is either 8 or 10 here
-			encoder_ctx->profile = settings.bit_depth == 10 ? AV_PROFILE_HEVC_MAIN_10 : AV_PROFILE_HEVC_MAIN;
-			break;
-		case video_codec::av1:
-			encoder_ctx->profile = AV_PROFILE_AV1_MAIN;
-			break;
-		case video_codec::raw:
-			throw std::runtime_error("raw codec not supported");
-	}
-	for (auto option: settings.options)
-	{
-		av_dict_set(&opts, option.first.c_str(), option.second.c_str(), 0);
-	}
-
-	encoder_ctx->width = extent.width;
-	encoder_ctx->height = extent.height;
-	encoder_ctx->time_base = {std::chrono::steady_clock::duration::period::num,
-	                          std::chrono::steady_clock::duration::period::den};
-	encoder_ctx->framerate = AVRational{(int)settings.fps * 1000, 1000};
-	encoder_ctx->sample_aspect_ratio = AVRational{1, 1};
-	encoder_ctx->pix_fmt = AV_PIX_FMT_VAAPI;
-	encoder_ctx->color_range = AVCOL_RANGE_JPEG;
-	encoder_ctx->colorspace = AVCOL_SPC_BT709;
-	encoder_ctx->color_trc = AVCOL_TRC_BT709;
-	encoder_ctx->color_primaries = AVCOL_PRI_BT709;
-	encoder_ctx->max_b_frames = 0;
-	encoder_ctx->bit_rate = settings.bitrate;
-	encoder_ctx->gop_size = std::numeric_limits<decltype(encoder_ctx->gop_size)>::max();
-	encoder_ctx->hw_frames_ctx = av_buffer_ref(vaapi_frame_ctx.get());
-
-	err = avcodec_open2(encoder_ctx.get(), codec, &opts);
-	av_dict_free(&opts);
-	if (err < 0)
-	{
-		throw std::system_error(err, av_error_category(), "Cannot open video encoder codec");
-	}
-
-	if (encoder_ctx->delay != 0)
-	{
-		U_LOG_W("Encoder %d reports a %d frame delay, reprojection will fail", stream_idx, encoder_ctx->delay);
-	}
+	encoder_ctx = open_encoder(settings);
 
 	const bool has_modifiers =
 	        std::ranges::any_of(vk.device_extensions, [](const char * ext) {
@@ -436,6 +374,115 @@ video_encoder_va::video_encoder_va(wivrn::vk_bundle & vk,
 	ts_pool = gpu_timestamp_pool(vk, vk.queue.family_index, num_slots, std::format("va encoder {} pixel copy", stream_idx));
 }
 
+av_codec_context_ptr video_encoder_va::open_encoder(const encoder_settings & settings)
+{
+	const char * encoder_name = encoder(settings.codec);
+	const AVCodec * codec = avcodec_find_encoder_by_name(encoder_name);
+	if (codec == nullptr)
+	{
+		throw std::runtime_error(std::string("Failed to find encoder ") + encoder_name);
+	}
+
+	av_codec_context_ptr context(avcodec_alloc_context3(codec));
+	if (not context)
+	{
+		throw std::runtime_error("failed to allocate VAAPI encoder");
+	}
+
+	AVDictionary * opts = nullptr;
+	av_dict_set(&opts, "async_depth", "1", 0);
+	switch (settings.codec)
+	{
+		case video_codec::h264:
+			context->profile = AV_PROFILE_H264_CONSTRAINED_BASELINE;
+			av_dict_set(&opts, "coder", "cavlc", 0);
+			av_dict_set(&opts, "rc_mode", "CBR", 0);
+			break;
+		case video_codec::h265:
+			// bit_depth is either 8 or 10 here
+			context->profile = settings.bit_depth == 10 ? AV_PROFILE_HEVC_MAIN_10 : AV_PROFILE_HEVC_MAIN;
+			break;
+		case video_codec::av1:
+			context->profile = AV_PROFILE_AV1_MAIN;
+			break;
+		case video_codec::raw:
+			throw std::runtime_error("raw codec not supported");
+	}
+	for (auto option: settings.options)
+	{
+		av_dict_set(&opts, option.first.c_str(), option.second.c_str(), 0);
+	}
+
+	context->width = extent.width;
+	context->height = extent.height;
+	context->time_base = {std::chrono::steady_clock::duration::period::num,
+	                      std::chrono::steady_clock::duration::period::den};
+	context->framerate = AVRational{int(settings.fps * 1000), 1000};
+	context->sample_aspect_ratio = AVRational{1, 1};
+	context->pix_fmt = AV_PIX_FMT_VAAPI;
+	context->color_range = AVCOL_RANGE_JPEG;
+	context->colorspace = AVCOL_SPC_BT709;
+	context->color_trc = AVCOL_TRC_BT709;
+	context->color_primaries = AVCOL_PRI_BT709;
+	context->max_b_frames = 0;
+	context->bit_rate = settings.bitrate;
+	context->gop_size = std::numeric_limits<decltype(context->gop_size)>::max();
+	context->hw_frames_ctx = av_buffer_ref(vaapi_frame_ctx.get());
+
+	int err = avcodec_open2(context.get(), codec, &opts);
+	av_dict_free(&opts);
+	if (err < 0)
+	{
+		throw std::system_error(err, av_error_category(), "Cannot open video encoder codec");
+	}
+
+	if (context->delay != 0)
+	{
+		U_LOG_W("Encoder %d reports a %d frame delay, reprojection will fail", stream_idx, context->delay);
+	}
+
+	return context;
+}
+
+bool video_encoder_va::reconfigure(uint32_t bitrate, float framerate)
+{
+	if (not bitrate and not framerate and not pending_settings)
+		return false;
+
+	auto requested = pending_settings.value_or(settings);
+	if (bitrate)
+		requested.bitrate = bitrate;
+	if (framerate)
+		requested.fps = framerate;
+	if (requested.bitrate == settings.bitrate and requested.fps == settings.fps)
+	{
+		pending_settings.reset();
+		return false;
+	}
+
+	auto now = std::chrono::steady_clock::now();
+	if (not pending_settings or requested.bitrate != pending_settings->bitrate or requested.fps != pending_settings->fps)
+	{
+		pending_settings = requested;
+		settings_deadline = now + std::chrono::milliseconds(200);
+	}
+	if (now < settings_deadline)
+		return false;
+
+	// VAAPI rate control is initialized by avcodec_open2. Updating the public
+	// AVCodecContext fields alone leaves the hardware using the previous rate.
+	// Keep the frame pool and Vulkan imports; only reopen the codec context.
+	auto context = open_encoder(requested);
+	encoder_ctx = std::move(context);
+	settings = std::move(requested);
+	pending_settings.reset();
+	U_LOG_I("VAAPI encoder %u reconfigured to %.1f Mbit/s at %.2f FPS",
+	        stream_idx,
+	        settings.bitrate / 1'000'000.0,
+	        settings.fps);
+	return true;
+}
+
 void video_encoder_va::present_image(vk::Image y_cbcr, vk::SemaphoreSubmitInfo, uint8_t slot, uint64_t frame_index)
 {
 	if (vk.device.waitForFences(*in[slot].fence, true, 1'000'000'000) == vk::Result::eTimeout)
@@ -452,9 +499,9 @@ void video_encoder_va::present_image(vk::Image y_cbcr, vk::SemaphoreSubmitInfo, 
 	                .newLayout = vk::ImageLayout::eTransferDstOptimal,
 	                .image = *in[slot].luma,
 	                .subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor,
-	                                     .baseMipLevel = 0,
-	                                     .levelCount = 1,
-	                                     .layerCount = 1},
+			                     .baseMipLevel = 0,
+			                     .levelCount = 1,
+			                     .layerCount = 1},
 	        },
 	        vk::ImageMemoryBarrier{
 	                .srcAccessMask = vk::AccessFlagBits::eNone,
@@ -463,9 +510,9 @@ void video_encoder_va::present_image(vk::Image y_cbcr, vk::SemaphoreSubmitInfo, 
 	                .newLayout = vk::ImageLayout::eTransferDstOptimal,
 	                .image = *in[slot].chroma,
 	                .subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor,
-	                                     .baseMipLevel = 0,
-	                                     .levelCount = 1,
-	                                     .layerCount = 1},
+			                     .baseMipLevel = 0,
+			                     .levelCount = 1,
+			                     .layerCount = 1},
 	        },
 	};
 
