@@ -110,6 +110,21 @@ This reproduced the downlink result without the shell tools' copying path;
 it is still a single-flow diagnostic measurement, not proof of the link's
 maximum possible capacity.
 
+### Retest after restarting the Wi-Fi 6 router
+
+Later on 6 November, with the same Quest firmware, Wi-Fi address, and
+1200 Mbit/s reported link rate, the user restarted the router. Repeating the
+PC-to-Quest transfers with VR streaming stopped gave:
+
+| Receiver | Before router restart | After router restart |
+| --- | --- | --- |
+| Native Android `recv` probe | 102.5 Mbit/s | 686.3 Mbit/s |
+| Original `toybox nc`/`dd` test, PC sending interval | 107.8 Mbit/s | 682.8 Mbit/s |
+
+The measured downlink restriction was gone after the router restart. This
+retest did not include a 140 Mbit/s VR streaming trial. The VAAPI live-bitrate
+update bug and its fix remain independently verified.
+
 The OS identifies WiVRn as an immersive app and puts its process in the TOP
 foreground state. `dumpsys wifi` confirms a type-4 WiVRn lock and disabled
 Wi-Fi power saving while the headset is worn. The PC Ethernet link reports
