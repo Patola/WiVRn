@@ -109,6 +109,15 @@ configured; regular unpatched servers cannot use the new combination.
 
 - Full Linux server/OpenXR-library build succeeds with Vulkan headers 1.4.363.
 - CPU AV1 level/tier regression checks pass.
+- The final encoder code also passes a headless GPU test with the Khronos
+  validation layer: 30 synthetic frames per configuration, H.264 8-bit,
+  H.265 8/10-bit, and AV1 8/10-bit at 1280×1344. It changes total bitrate
+  50 → 140 → 50 Mbit/s and nominal refresh rate 80 → 120 → 80 Hz. Logs
+  confirm AV1 level and tier upgrades; no validation errors occur.
+- The same GPU test passes AV1 8/10-bit at 4608×1024, covering the former
+  single-tile width limit. This checks submission and completion, rather
+  than decoded image quality. Its temporary harness and logs are under
+  `build-quest-diagnostics/vulkan-av1/gpu-smoke*`.
 - Envision development build/install, formatting, strict clippy checks, and all
   101 unit tests pass. The new UI hint is included in gettext extraction.
 - RX 7900 XTX, RADV/Mesa 26.2.6, Quest 3: the user confirmed smooth wireless
@@ -117,7 +126,18 @@ configured; regular unpatched servers cannot use the new combination.
 - A 300-frame capture decodes cleanly with FFmpeg/libdav1d after inserting
   temporal delimiters for the standalone OBU demuxer (the network protocol
   supplies frame boundaries separately).
+- The final build was then tested on the headset starting at 50 Mbit/s and
+  increasing live to 140 without reconnecting. The user confirmed that it
+  remained smooth. The captures show level 5.0, Main tier at 50, upgraded to
+  High tier at 140. Both eyes decode cleanly before and after the change:
+  four samples of 300 frames, 1200 frames total, with no decoder warnings.
+  No Vulkan validation errors were reported in this session.
 
-Other GPUs/drivers, active passthrough/alpha streaming, and resolutions above
-4096 pixels per stream have not been hardware-tested here. This remains a
+The test server and its log collectors were stopped after validation, leaving
+port 9757 available for the regular Envision server. Large temporary raw
+captures were removed; bounded samples and diagnostic logs remain in the
+ignored build directory.
+
+Other GPUs/drivers, active passthrough/alpha streaming, and headset display
+of streams above 4096 pixels wide have not been tested here. This remains a
 personal experimental build, rather than a claim of upstream readiness.
