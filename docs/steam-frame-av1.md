@@ -4,7 +4,9 @@ This work stays on `codex/quest-v29-latency`. Upstream `master` was merged
 through `47651c00`, including the Frame controller, battery, startup and
 codec-specific 10-bit detection changes.
 The existing Vulkan AV1 server encoder and VAAPI reconfiguration fix are retained.
-The translation branch and installed Envision profiles were not changed.
+The translation branch is unchanged. The new local Envision profile uses
+`WIVRN_USE_SYSTEM_BOOST=ON`; configuration of bundled Boost.Locale failed on
+the host, leaving an incomplete build directory without `build.ninja`.
 
 ## Two components are required
 
@@ -14,12 +16,11 @@ client must support that format. This follows the separate kernel workaround
 described in [SteamOS report 2954](https://github.com/ValveSoftware/SteamOS/issues/2954)
 and the [Iris AV1 proof of concept](https://github.com/mmis1000/steamframe-iris-av1-poc).
 
-The headset was inspected over SSH **read-only**, using system query tools.
-No files were copied to it, no WiVRn client was installed or launched, and no
-service or module was changed.
-The artifacts described below were built and staged on the PC only.
+Agent access to the headset remains **read-only**. The artifacts were built
+on the PC. The user subsequently copied the client, temporarily loaded the
+patched module, and tested streaming; the results are recorded below.
 
-Observed device state on 2026-11-16:
+Initial device state on 2026-11-16, before the user loaded the patched module:
 
 | Item | Value |
 | --- | --- |
@@ -94,17 +95,18 @@ The resulting module has vermagic:
 The cross compiler is GCC 15.1.0; Valve's kernel was built with GCC 15.2.1.
 Kbuild reports this difference. The output is unsigned, and optional BTF
 generation is skipped; neither changes the installed kernel or its firmware.
-Matching configuration/vermagic and a successful build do **not** establish
-that loading the module is safe or that streaming works on this newer kernel.
+Matching configuration/vermagic and a successful build alone do **not**
+establish runtime compatibility. See the device-specific streaming results
+below; other kernels and devices are not covered by those tests.
 
 Optional cached inputs are `WIVRN_FRAME_HEADERS_ARCHIVE`,
 `WIVRN_FRAME_GCC_ARCHIVE`, `WIVRN_FRAME_KERNEL_SOURCE` and
 `WIVRN_FRAME_IRIS_POC_SOURCE`. Revisions and archive checksums are still checked.
 `WIVRN_BUILD_JOBS` controls parallelism.
 
-No loader or automatic system modification is added to the client. Activation
-would require a separate, explicitly authorized deployment and a temporary
-driver swap. That step was not performed under the read-only instruction.
+No loader or automatic system modification is added to the client. The user
+performed activation separately using a temporary driver swap. The agent did
+not modify the Frame under the read-only instruction.
 
 ## ARM64 client build
 
@@ -142,6 +144,26 @@ Build the server from this synchronized branch too. The merge changes the
 wire protocol relative to the older pre-merge custom build; older Quest
 clients would also need rebuilding before using the updated server.
 
+## Sharing the server with Quest
+
+The V4L2 AV1 changes do not change the wire format or the Android decoder.
+The updated Android APK and Linux server, compiled from `478f0bf5` with their
+respective toolchains, both calculate protocol hash `d1e19cf450318ccb`.
+The ARM64 Frame client at `519aa4c9` also works with that server; the later
+commit only updated documentation.
+
+Building an APK does not install it. In Envision, follow **Build client APK**
+with **Install locally built APK** for the selected profile. The separate
+GitHub release installer installs another package and does not update
+`org.meumeu.wivrn.local`. Check the native client's startup revision when
+diagnosing mismatches: the Android package metadata can still say `1.0`.
+
+During testing, the installed Local APK was still `869b0ce6` from November 6,
+while the new profile's APK was `478f0bf5`. After verifying matching signing
+certificates and updating Local with `adb install -r`, the user confirmed
+smooth AV1 streaming from the same Envision server. Application data was
+preserved, and no protocol compatibility check was bypassed.
+
 ## Validation and limits
 
 - The full Linux server and matching OpenXR library build successfully.
@@ -155,10 +177,26 @@ clients would also need rebuilding before using the updated server.
   remain unchanged, and module name/architecture/vermagic checks pass.
 - ShellCheck and Bash syntax checks pass for the module builder.
 
-End-to-end AV1 hardware decoding, decoded image correctness, latency, and
-three concurrent streams have **not** been tested on the Frame. Loading a
-module or starting a decoder would change device state, so those tests were
-excluded by the read-only constraint. The existing driver still lacks AV1.
+The user tested the patched module and ARM64 client on the Frame on
+2026-11-16. They reported smooth detailed gameplay for more than ten minutes,
+then another successful run with debug logging. Each run had one brief visual
+hiccup, also reported with other codecs. The debug log records two Iris
+DMA-buf capture queues using linear `NV12 (8-bit)` and a stream rate of
+`90.00001` Hz. There are missing-video-shard messages, but no decoder-worker
+failure or kernel Iris crash in the collected logs. These observations do not
+establish the cause of the hiccups or provide a measured latency comparison.
+
+The Frame's disabled refresh-rate selector displayed 72 Hz, while the stream
+description reported approximately 90 Hz. Requests to change the rate were
+rejected with `XR_ERROR_DISPLAY_REFRESH_RATE_UNSUPPORTED_FB`. The selector
+uses the runtime's enumerated rate list and is disabled when fewer than two
+rates are returned; its displayed selection should not be treated as a
+measurement of the active stream rate.
+
+The updated Quest Local client was also tested against this server. Its log
+records three `c2.qti.av1.decoder` MediaCodec instances at 90 Hz, and the user
+confirmed smooth streaming without a version mismatch. Frame three-stream
+operation and other kernel/firmware versions have not been validated.
 
 Local build products are under `build-frame-av1/`, which is ignored by Git.
 Device inspection logs and temporary SDK/build files are not part of the
