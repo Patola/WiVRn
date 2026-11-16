@@ -1,7 +1,8 @@
 # Steam Frame AV1 hardware decoding
 
 This work stays on `codex/quest-v29-latency`. Upstream `master` was merged
-at `63700f05`, including the Frame controller, battery and startup changes.
+through `47651c00`, including the Frame controller, battery, startup and
+codec-specific 10-bit detection changes.
 The existing Vulkan AV1 server encoder and VAAPI reconfiguration fix are retained.
 The translation branch and installed Envision profiles were not changed.
 
@@ -108,8 +109,8 @@ driver swap. That step was not performed under the read-only instruction.
 
 The native ARM64 CI recipe is still the `frame` preset in
 `.github/workflows/Build.yml`. The referenced successful run
-`43485525863` used upstream commit `4d782f73`; the merged `63700f05` adds the
-following server listen-socket fix without changing that run's wire protocol.
+`43485525863` used upstream commit `4d782f73`; the subsequent listen-socket and P010
+capability fixes merged here do not change that run's wire protocol.
 
 For cross-building on Linux, use an extracted ARM64 Steam Runtime SDK root
 with its target libraries, an `aarch64-linux-gnu` GCC/G++ toolchain, and native
