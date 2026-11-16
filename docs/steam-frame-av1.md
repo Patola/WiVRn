@@ -14,8 +14,9 @@ client must support that format. This follows the separate kernel workaround
 described in [SteamOS report 2954](https://github.com/ValveSoftware/SteamOS/issues/2954)
 and the [Iris AV1 proof of concept](https://github.com/mmis1000/steamframe-iris-av1-poc).
 
-The headset was inspected over SSH **read-only**. No files were copied to it,
-no program was installed or launched on it, and no service or module was changed.
+The headset was inspected over SSH **read-only**, using system query tools.
+No files were copied to it, no WiVRn client was installed or launched, and no
+service or module was changed.
 The artifacts described below were built and staged on the PC only.
 
 Observed device state on 2026-11-16:
