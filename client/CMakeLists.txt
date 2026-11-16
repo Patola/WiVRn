@@ -185,6 +185,12 @@ target_include_directories(wivrn PRIVATE .)
 
 if(NOT ANDROID)
     install(TARGETS wivrn)
+    if(WIVRN_USE_V4L2 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$" AND NOT WIVRN_USE_SYSTEM_OPENXR)
+        # Steam's launch environment may supply a loader, but an extracted
+        # Frame client should also be able to find the loader it was built with.
+        install(TARGETS openxr_loader LIBRARY DESTINATION lib)
+        set_property(TARGET wivrn PROPERTY INSTALL_RPATH "$ORIGIN/../lib")
+    endif()
 endif()
 
 ##############################################################################

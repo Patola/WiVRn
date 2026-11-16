@@ -37,6 +37,9 @@ constexpr auto capture_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 constexpr unsigned int output_buffer_count = 8;
 constexpr unsigned int capture_buffer_count = 12;
 constexpr uint64_t drm_format_mod_linear = 0;
+// Stateful AV1, as exposed by Iris. Steam Runtime's older kernel headers
+// only define AV1_FRAME, which is the different stateless/request API.
+constexpr uint32_t av1_pixel_format = v4l2_fourcc('A', 'V', '0', '1');
 
 int xioctl(int fd, unsigned long request, void * arg)
 {
@@ -73,6 +76,8 @@ uint32_t v4l2_codec(wivrn::video_codec codec)
 			return V4L2_PIX_FMT_H264;
 		case wivrn::video_codec::h265:
 			return V4L2_PIX_FMT_HEVC;
+		case wivrn::video_codec::av1:
+			return av1_pixel_format;
 		default:
 			throw std::runtime_error("No V4L2 codec mapping for requested codec");
 	}
@@ -100,6 +105,21 @@ bool supports_format(int fd, v4l2_buf_type type, uint32_t pixel_format)
 		if (fmt.pixelformat == pixel_format)
 			return true;
 	}
+}
+
+bool supports_av1_capture(int fd)
+{
+	// CAPTURE formats are codec-specific. Select AV1 on this temporary
+	// descriptor before checking that it offers a format Vulkan can import.
+	v4l2_format fmt{};
+	fmt.type = output_type;
+	fmt.fmt.pix_mp.width = 1280;
+	fmt.fmt.pix_mp.height = 720;
+	fmt.fmt.pix_mp.pixelformat = av1_pixel_format;
+	fmt.fmt.pix_mp.num_planes = 1;
+	return xioctl(fd, VIDIOC_S_FMT, &fmt) == 0 &&
+	       fmt.fmt.pix_mp.pixelformat == av1_pixel_format &&
+	       supports_format(fd, capture_type, V4L2_PIX_FMT_NV12);
 }
 
 wivrn::fd_base find_device(wivrn::video_codec codec)
@@ -293,10 +313,9 @@ void decoder::setup_device(wivrn::fd_base device_fd)
 	ioctl_or_throw(fd.get_fd(), VIDIOC_SUBSCRIBE_EVENT, &sub, "VIDIOC_SUBSCRIBE_EVENT(SOURCE_CHANGE)");
 	setup_output_queue();
 
-	// H265 needs an initial header-parsing phase with only the coded OUTPUT queue active.
-	// setting up and streaming he placeholder queue can prevent iris from completing
-	// sequence initialization
-	if (codec_type != wivrn::video_codec::h265)
+	// HEVC and AV1 must parse their sequence headers with only OUTPUT active.
+	// Starting a placeholder CAPTURE queue can stall Iris initialization.
+	if (codec_type != wivrn::video_codec::h265 && codec_type != wivrn::video_codec::av1)
 	{
 		setup_capture_queue();
 		v4l2_buf_type capture = capture_type;
@@ -593,6 +612,18 @@ void decoder::setup_capture_queue()
 	v4l2_format fmt{};
 	fmt.type = capture_type;
 	ioctl_or_throw(fd.get_fd(), VIDIOC_G_FMT, &fmt, "VIDIOC_G_FMT(CAPTURE)");
+	if (codec_type == wivrn::video_codec::av1)
+	{
+		// The patched driver defaults to Q08C (Qualcomm UBWC). This path
+		// imports linear NV12; request it explicitly after SOURCE_CHANGE.
+		fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
+		fmt.fmt.pix_mp.num_planes = 1;
+		for (auto & plane: fmt.fmt.pix_mp.plane_fmt)
+			plane = {};
+		ioctl_or_throw(fd.get_fd(), VIDIOC_S_FMT, &fmt, "VIDIOC_S_FMT(AV1 CAPTURE NV12)");
+		if (fmt.fmt.pix_mp.pixelformat != V4L2_PIX_FMT_NV12)
+			throw std::runtime_error("Iris AV1 decoder did not accept linear NV12 CAPTURE output");
+	}
 
 	capture_width = fmt.fmt.pix_mp.width;
 	capture_height = fmt.fmt.pix_mp.height;
@@ -701,7 +732,7 @@ void decoder::handle_events()
 		{
 			if (capture_buffers.empty())
 			{
-				// iris has now parsed enough VPS/SPS/PPS data for G_FMT(CAPTURE) to describe the real stream
+				// Iris has parsed the stream headers; CAPTURE now describes the real stream.
 				spdlog::info("V4L2 iris decoder source change; configuring DMA-buf CAPTURE queue");
 			}
 			else
@@ -915,6 +946,14 @@ void decoder::drain_capture()
 		const uint64_t timestamp = timestamp_to_u64(buf.timestamp);
 		if (!(buf.flags & V4L2_BUF_FLAG_ERROR))
 		{
+			if (!buf.length || !planes[0].bytesused)
+			{
+				// Iris may return empty CAPTURE buffers between AV1 display
+				// frames. Recycle them without presenting stale pixels or
+				// consuming the pending frame's timestamp/feedback.
+				queue_capture_buffer(buf.index);
+				continue;
+			}
 			submit_capture(buf.index, timestamp);
 		}
 		else
@@ -1019,7 +1058,9 @@ bool decoder::available_for(wivrn::video_codec codec)
 {
 	try
 	{
-		find_device(codec);
+		auto device = find_device(codec);
+		if (codec == wivrn::video_codec::av1)
+			return supports_av1_capture(device.get_fd());
 	}
 	catch (...)
 	{
@@ -1030,6 +1071,10 @@ bool decoder::available_for(wivrn::video_codec codec)
 
 bool decoder::supports_10bit(wivrn::video_codec codec)
 {
+	// The AV1 workaround exposes linear NV12 and compressed TP10C, not
+	// linear P010. Do not negotiate 10-bit until its import path is supported.
+	if (codec == wivrn::video_codec::av1)
+		return false;
 	try
 	{
 		auto device = find_device(codec);
@@ -1043,6 +1088,8 @@ bool decoder::supports_10bit(wivrn::video_codec codec)
 
 void decoder::supported_codecs(std::vector<wivrn::video_codec> & result)
 {
+	if (available_for(wivrn::video_codec::av1))
+		result.push_back(wivrn::video_codec::av1);
 	if (available_for(wivrn::video_codec::h265))
 		result.push_back(wivrn::video_codec::h265);
 	if (available_for(wivrn::video_codec::h264))
