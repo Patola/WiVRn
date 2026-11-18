@@ -1,5 +1,9 @@
 # Steam Frame AV1 hardware decoding
 
+For cloning, all three builds, deployment, the Steam shortcut, temporary
+activation and restoration, follow the [step-by-step setup guide](steam-frame-av1-guide.md).
+This page records implementation details and test results.
+
 This work stays on `codex/quest-v29-latency`. Upstream `master` was merged
 through `47651c00`, including the Frame controller, battery, startup and
 codec-specific 10-bit detection changes.

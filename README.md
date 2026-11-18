@@ -135,6 +135,10 @@ The same overrides should work for other VR applications distributed as Flatpaks
 
 See [building](docs/building.md) for building the [dashboard](docs/building.md#dashboard), [server (PC)](docs/building.md#server-pc), and [client (headset)](docs/building.md#client-headset)
 
+For this fork's experimental Steam Frame hardware AV1 support, follow the
+[complete Vulkan AV1 setup guide](docs/steam-frame-av1-guide.md), including
+the ARM64 client, matching Iris module and stock-driver restoration.
+
 
 # Configuration
 Most settings are controlled through the headset app, while the server has configuration for items that are specific to the server. Use the dashboard to edit the latter, or see [configuration](docs/configuration.md) for editing it manually.
