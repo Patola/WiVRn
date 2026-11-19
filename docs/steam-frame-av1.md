@@ -40,6 +40,20 @@ Initial device state on 2026-11-16, before the user loaded the patched module:
 | Advertised coded formats | H264, HEVC, VP90; no AV01 |
 | Firmware | Existing `qcom/vpu/vpu33_4v.mbn` |
 
+### Native AV1 after the November 19 update
+
+A subsequent beta update installed SteamOS **0.5.10**, build
+`20261118.6185655`, with kernel **`7.2.0-g04c7e99cb73a`**. Its signed stock
+module is **`qcom_iris`** (`qcom-iris.ko`), rather than the old `iris` module.
+It enumerates `AV01`, accepts AV1 format selection, and offers linear NV12
+and P010 capture formats. WiVRn still negotiates its validated 8-bit AV1 path.
+
+No patched module was loaded on this kernel. The existing custom ARM64
+client produced two `V4L2 iris DMA-buf capture` queues with `NV12 (8-bit)`,
+and the user confirmed smooth AV1 streaming. The old rebind service was
+already inactive because its old-driver path condition no longer matched.
+The `7.2.0-g344f27110f05` module remains only for the older matching kernel.
+
 ## Client changes
 
 These affect the Linux V4L2 backend used by the Frame preset. Android and
@@ -202,8 +216,17 @@ The Frame's disabled refresh-rate selector displayed 72 Hz, while the stream
 description reported approximately 90 Hz. Requests to change the rate were
 rejected with `XR_ERROR_DISPLAY_REFRESH_RATE_UNSUPPORTED_FB`. The selector
 uses the runtime's enumerated rate list and is disabled when fewer than two
-rates are returned; its displayed selection should not be treated as a
-measurement of the active stream rate.
+rates are returned. The negotiated stream rate alone does not establish the
+panel's actual refresh rate.
+
+On November 19, compositor logs confirmed an actual switch from about 90 Hz
+to 72 Hz when WiVRn launched, despite the Steam Link preferred refresh rate
+being about 90 Hz. Valve documents a separate 72 Hz default for native Frame
+applications. Set the WiVRn shortcut's **VR Settings → Video → Per-Application
+Video Settings → Frame Limit / Refresh Rate Override** to 90 Hz with no
+throttling, then reconnect. The compositor log at
+`~/.local/share/Steam/logs/vrcompositor.txt` records the selected display mode.
+See [Valve's per-application settings documentation](https://partner.steamgames.com/doc/steamhardware/steamframe/vrpreferences).
 
 The updated Quest Local client was also tested against this server. Its log
 records three `c2.qti.av1.decoder` MediaCodec instances at 90 Hz, and the user

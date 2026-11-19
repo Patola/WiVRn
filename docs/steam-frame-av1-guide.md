@@ -4,6 +4,13 @@ Use the **CI-built packages** for the standard setup. The workflow builds and
 publishes a matching Linux PC server, ARM64 client and patched Iris module.
 Follow the installation steps below, then launch and connect.
 
+**Newer SteamOS may already support AV1.** SteamOS **0.5.10**, build
+`20261118.6185655`, kernel **`7.2.0-g04c7e99cb73a`**, was tested with native
+`qcom_iris`: it exposes `AV01` and linear NV12, and this client streamed AV1
+successfully without a patched module. On that system use the server and
+client packages, keep the stock driver, and skip the module portions of
+steps 3–4 and restoration in step 6.
+
 For local builds, follow [Local compilation (alternative)](steam-frame-av1-building.md).
 That guide retains the complete clone, dependency, server, ARM64 client and
 module build instructions, plus deployment and restoration.
@@ -12,13 +19,14 @@ module build instructions, plus deployment and restoration.
 
 Get a **Steam Frame AV1 build** from
 [Patola/WiVRn Releases](https://github.com/Patola/WiVRn/releases).
-Download all components from **the same release**, plus `SHA256SUMS`:
+Download the server and client from **the same release**, plus `SHA256SUMS`.
+Add the module archive only for the older matching kernel that needs it:
 
 | Download | Where it runs |
 | --- | --- |
 | `wivrn-server-x86_64.flatpak` | Linux PC: server, dashboard and OpenXR runtime |
 | `wivrn-frame-av1-arm64.tar.xz` | Steam Frame: native ARM64 client |
-| `iris-av1-7.2.0-g344f27110f05-aarch64.tar.xz` | Steam Frame: temporary AV1 decoder module and guarded loader |
+| `iris-av1-7.2.0-g344f27110f05-aarch64.tar.xz` | Older matching Frame kernel only: temporary AV1 decoder module and guarded loader |
 
 The server requires Flatpak with the KDE 6.11 runtime and a GPU/driver with
 Vulkan Video AV1 **encoding** support. Flatpak installs the required runtime;
@@ -101,9 +109,18 @@ Enable SSH on the Frame. From the PC download directory, replace the example
 address with your Frame's IP:
 
 ```bash
-scp wivrn-frame-av1-arm64.tar.xz \
-    iris-av1-7.2.0-g344f27110f05-aarch64.tar.xz \
-    steamos@192.168.1.44:~/
+scp wivrn-frame-av1-arm64.tar.xz steamos@192.168.1.44:~/
+```
+
+For the older kernel that needs the workaround, also copy the module:
+
+```bash
+scp iris-av1-7.2.0-g344f27110f05-aarch64.tar.xz steamos@192.168.1.44:~/
+```
+
+Open an SSH session to check the driver and extract the packages:
+
+```bash
 ssh steamos@192.168.1.44
 ```
 
@@ -114,19 +131,28 @@ uname -r
 v4l2-ctl -d /dev/video-dec0 --list-formats-out
 ```
 
-If the kernel matches and stock Iris still lacks `AV01`, extract into a fresh
-location. These commands deliberately refuse to overlay earlier bundles:
+Extract the client into a fresh location. These commands deliberately refuse
+to overlay an earlier bundle:
 
 ```bash
 (
 set -euo pipefail
 mkdir -p "$HOME/mystuff"
 test ! -e "$HOME/mystuff/wivrn-frame-av1-arm64"
-test ! -e "$HOME/mystuff/iris-av1-7.2.0-g344f27110f05-aarch64"
 tar -xJf "$HOME/wivrn-frame-av1-arm64.tar.xz" -C "$HOME/mystuff"
-tar -xJf "$HOME/iris-av1-7.2.0-g344f27110f05-aarch64.tar.xz" -C "$HOME/mystuff"
 cd "$HOME/mystuff/wivrn-frame-av1-arm64"
 sha256sum --check --quiet SHA256SUMS
+)
+```
+
+Only if the kernel matches `7.2.0-g344f27110f05` and stock Iris lacks `AV01`,
+also extract the module:
+
+```bash
+(
+set -euo pipefail
+test ! -e "$HOME/mystuff/iris-av1-7.2.0-g344f27110f05-aarch64"
+tar -xJf "$HOME/iris-av1-7.2.0-g344f27110f05-aarch64.tar.xz" -C "$HOME/mystuff"
 cd "$HOME/mystuff/iris-av1-7.2.0-g344f27110f05-aarch64"
 sha256sum --check SHA256SUMS
 )
@@ -137,6 +163,9 @@ OpenXR loader, not a software AV1 decoder. The tar archive preserves the
 executable permissions and loader symlinks.
 
 ## 4. Load AV1 temporarily
+
+Skip this step when the stock driver already supports AV1. The old module
+cannot be used with the newer `qcom_iris` driver and kernel.
 
 Close WiVRn and video playback on the Frame first, including Steam Store
 autoplay videos: `steamwebhelper` can keep the decoder busy. In the SSH session:
@@ -187,9 +216,30 @@ Start your PC VR application. Then verify the PC log selects `vulkan (av1
 grep -Ei 'V4L2 iris|NV12|failed|exception|error' "$HOME/frame-av1.log"
 ```
 
-Raise bitrate gradually once stable. A disabled 72 Hz selector has been seen
-while a stream negotiated about 90 Hz; its value is not a measurement of the
-active stream rate. Use SteamOS display settings and the logs for diagnosis.
+Raise bitrate gradually once stable.
+
+### Set the Frame's per-application refresh rate
+
+SteamVR defaults native Frame applications to **72 Hz**, independently of
+the Steam Link streaming refresh-rate setting. With WiVRn running, open
+**VR Settings → Video → Per-Application Video Settings**, select the WiVRn
+shortcut, and set **Frame Limit / Refresh Rate Override** to **90 Hz** with
+no throttling. Reconnect WiVRn after applying the override.
+See [Valve's per-application settings documentation](https://partner.steamgames.com/doc/steamhardware/steamframe/vrpreferences).
+
+On the tested runtime WiVRn cannot directly change this system-managed rate;
+requests can fail with `XR_ERROR_DISPLAY_REFRESH_RATE_UNSUPPORTED_FB`.
+A negotiated stream rate of about 90 Hz alone does not prove the panel runs
+at 90 Hz: the compositor was observed switching to 72 Hz on WiVRn launch.
+Check the latest display-mode changes on the Frame:
+
+```bash
+grep -E 'Selected display mode|Prop_DisplayFrequency_Float' \
+    "$HOME/.local/share/Steam/logs/vrcompositor.txt" | tail -n 12
+```
+
+Look for the mode selected after launching WiVRn, rather than a 90 Hz entry
+from the idle dashboard before launch.
 
 ## 6. Restore the original driver
 

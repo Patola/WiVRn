@@ -30,6 +30,14 @@ Navigation: [PC server](#5-compile-and-install-the-pc-server),
 
 ## 1. Check whether your Frame matches the tested system
 
+SteamOS **0.5.10**, build `20261118.6185655`, kernel
+**`7.2.0-g04c7e99cb73a`**, now has native AV1 support through `qcom_iris`.
+This client has streamed AV1 successfully with that stock driver. The older
+module below is unnecessary and incompatible with that kernel. To use the
+native driver, follow the [package setup guide](steam-frame-av1-guide.md),
+skipping its module steps; the server and client compilation instructions
+in this guide remain applicable.
+
 The module builder in this branch is **specific to this kernel and
 configuration**, tested on November 16, 2026:
 
@@ -601,11 +609,25 @@ image demonstrate the hardware path. Merely seeing `AV01` in a format list
 does not test decoding. `dmesg` was readable without `sudo` on the tested
 Frame; permissions can differ on other images.
 
-The tested runtime displayed a disabled **72 Hz** setting even while the
-stream negotiated approximately **90 Hz**, and rejected refresh requests
-with `XR_ERROR_DISPLAY_REFRESH_RATE_UNSUPPORTED_FB`. That label is not a
-measurement of the active stream rate. Use SteamOS's display settings and
-the stream logs when checking this behavior.
+SteamVR defaults native Frame applications to **72 Hz** independently of
+the Steam Link streaming refresh-rate setting. With WiVRn running, open
+**VR Settings → Video → Per-Application Video Settings**, select the WiVRn
+shortcut, and set **Frame Limit / Refresh Rate Override** to **90 Hz** with
+no throttling. Reconnect after applying it. See
+[Valve's per-application settings documentation](https://partner.steamgames.com/doc/steamhardware/steamframe/vrpreferences).
+
+The tested runtime rejects WiVRn's attempts to change this system-managed
+rate with `XR_ERROR_DISPLAY_REFRESH_RATE_UNSUPPORTED_FB`. A stream negotiating
+approximately 90 Hz does not establish the panel rate: the compositor was
+observed selecting 72 Hz when WiVRn launched. Inspect the latest changes:
+
+```bash
+grep -E 'Selected display mode|Prop_DisplayFrequency_Float' \
+    "$HOME/.local/share/Steam/logs/vrcompositor.txt" | tail -n 12
+```
+
+Use the mode selected after WiVRn launches; the dashboard can run at 90 Hz
+before the application starts.
 
 ## 15. Restore the original driver
 
