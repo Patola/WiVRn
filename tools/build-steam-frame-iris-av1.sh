@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Build a separate, temporary Iris AV1 module on the PC. Never contacts a headset.
 set -euo pipefail
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 kernel_release=7.2.0-g344f27110f05
 kernel_commit=344f27110f059d0520c9dbbafc503d4bbc6c1f68
@@ -87,12 +88,31 @@ vermagic=$(modinfo -F vermagic "$driver/iris.ko")
 
 cp "$driver/iris.ko" "$work/artifacts/iris-av1.ko"
 cp "$work/poc/iris-av1.patch" "$work/artifacts/"
+cp "$repo_dir/tools/steam-frame-iris-av1-session.sh" "$work/artifacts/iris-av1-session.sh"
+git -C "$work/source" show "$kernel_commit:LICENSES/preferred/GPL-2.0" > "$work/artifacts/LICENSE-GPL-2.0"
 printf '%s\n' "$config_sha" > "$work/artifacts/kernel-config.sha256"
 printf 'kernel=%s\nsource_commit=%s\npoc_commit=%s\ncompiler=%s\nvermagic=%s\n' \
     "$kernel_release" "$kernel_commit" "$poc_commit" "$(aarch64-linux-gcc -dumpfullversion)" "$vermagic" \
     > "$work/artifacts/build-info.txt"
+cat > "$work/artifacts/README.txt" <<EOF
+Experimental Steam Frame Iris AV1 module for $kernel_release, aarch64.
+Requires the matching running kernel configuration; the helper checks both.
+No persistent module or firmware installation is performed.
+
+Close video applications before loading. On the Frame, from this directory:
+  bash iris-av1-session.sh check "\$PWD/iris-av1.ko"
+  sudo bash iris-av1-session.sh load "\$PWD/iris-av1.ko"
+  sudo bash iris-av1-session.sh restore
+A reboot also restores the installed driver. Never force loading/unloading.
+Kernel code can hang; recovery may require a physical power cycle.
+
+Sources and attribution are in iris-av1.patch and build-info.txt.
+The kernel license is in LICENSE-GPL-2.0; the separate loader is GPL-3.0-or-later.
+The build checks ABI/configuration; CI does not load or test the decoder.
+EOF
 (
     cd "$work/artifacts"
-    sha256sum iris-av1.ko iris-av1.patch kernel-config.sha256 build-info.txt > SHA256SUMS
+    sha256sum iris-av1.ko iris-av1.patch kernel-config.sha256 build-info.txt \
+        iris-av1-session.sh README.txt LICENSE-GPL-2.0 > SHA256SUMS
 )
 printf '\nBuilt %s/artifacts/iris-av1.ko. No headset was contacted or changed.\n' "$work"

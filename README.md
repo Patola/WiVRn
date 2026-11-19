@@ -135,7 +135,10 @@ The same overrides should work for other VR applications distributed as Flatpaks
 
 See [building](docs/building.md) for building the [dashboard](docs/building.md#dashboard), [server (PC)](docs/building.md#server-pc), and [client (headset)](docs/building.md#client-headset)
 
-For this fork's experimental Steam Frame hardware AV1 support, follow the
+For prebuilt server, Frame client and Iris module bundles, see
+[AV1 downloads](https://github.com/Patola/WiVRn/releases) and the
+[setup instructions](docs/steam-frame-av1-downloads.md).
+To compile this fork's experimental Steam Frame hardware AV1 support, follow the
 [complete Vulkan AV1 setup guide](docs/steam-frame-av1-guide.md), including
 the ARM64 client, matching Iris module and stock-driver restoration.
 

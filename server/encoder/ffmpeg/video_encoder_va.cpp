@@ -179,7 +179,7 @@ video_encoder_va::video_encoder_va(wivrn::vk_bundle & vk,
 {
 	auto command_buffers = vk.device.allocateCommandBuffers(
 	        {.commandPool = *cmd_pool,
-		 .commandBufferCount = num_slots});
+	         .commandBufferCount = num_slots});
 	for (size_t i = 0; i < num_slots; ++i)
 	{
 		in[i].cmd = std::move(command_buffers[i]);
@@ -499,9 +499,9 @@ void video_encoder_va::present_image(vk::Image y_cbcr, vk::SemaphoreSubmitInfo, 
 	                .newLayout = vk::ImageLayout::eTransferDstOptimal,
 	                .image = *in[slot].luma,
 	                .subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor,
-			                     .baseMipLevel = 0,
-			                     .levelCount = 1,
-			                     .layerCount = 1},
+	                                     .baseMipLevel = 0,
+	                                     .levelCount = 1,
+	                                     .layerCount = 1},
 	        },
 	        vk::ImageMemoryBarrier{
 	                .srcAccessMask = vk::AccessFlagBits::eNone,
@@ -510,9 +510,9 @@ void video_encoder_va::present_image(vk::Image y_cbcr, vk::SemaphoreSubmitInfo, 
 	                .newLayout = vk::ImageLayout::eTransferDstOptimal,
 	                .image = *in[slot].chroma,
 	                .subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor,
-			                     .baseMipLevel = 0,
-			                     .levelCount = 1,
-			                     .layerCount = 1},
+	                                     .baseMipLevel = 0,
+	                                     .levelCount = 1,
+	                                     .layerCount = 1},
 	        },
 	};
 

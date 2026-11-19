@@ -3,6 +3,7 @@ name: Build
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 env:
   BUILD_TYPE: Release
@@ -116,7 +117,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/') && matrix.config.preset == 'server'
       with:
-        tag_name: ${{ inputs.ref }}
+        tag_name: ${{ github.ref_name }}
         generate_release_notes: true
         draft: true
         files: server-build-deps.tar.xz
@@ -192,6 +193,51 @@ jobs:
         if-no-files-found: error
         retention-days: 30
 
+    - name: Package AV1 Frame client with executable permissions
+      if: github.repository == 'Patola/WiVRn' && github.ref == 'refs/heads/codex/quest-v29-latency'
+      run: tools/package-steam-frame-av1.sh client install/usr av1-dist
+
+    - name: Upload AV1 Frame bundle
+      if: github.repository == 'Patola/WiVRn' && github.ref == 'refs/heads/codex/quest-v29-latency'
+      uses: actions/upload-artifact@v7
+      with:
+        name: wivrn-av1-frame-client
+        path: av1-dist/*.tar.xz
+        if-no-files-found: error
+        retention-days: 30
+
+  build-iris-av1:
+    name: Steam Frame Iris AV1 (kernel 7.2.0-g344f27110f05)
+    runs-on: ubuntu-24.04
+    if: github.repository == 'Patola/WiVRn' && github.ref == 'refs/heads/codex/quest-v29-latency'
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - name: Install module build tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git curl kmod zstd xz-utils shellcheck
+    - name: Check module scripts
+      run: |
+        bash -n tools/build-steam-frame-iris-av1.sh tools/steam-frame-iris-av1-session.sh tools/package-steam-frame-av1.sh
+        shellcheck tools/build-steam-frame-iris-av1.sh tools/steam-frame-iris-av1-session.sh tools/package-steam-frame-av1.sh
+    - name: Build the pinned kernel module
+      env:
+        WIVRN_BUILD_JOBS: '4'
+      run: tools/build-steam-frame-iris-av1.sh build-frame-iris
+    - name: Package the checked module and temporary loader
+      run: tools/package-steam-frame-av1.sh iris build-frame-iris/artifacts av1-dist
+    - name: Upload Iris bundle
+      uses: actions/upload-artifact@v7
+      with:
+        name: wivrn-av1-iris-module
+        path: av1-dist/*.tar.xz
+        if-no-files-found: error
+        retention-days: 30
+
   build-server-flatpak:
     name: Linux server (flatpak)
     runs-on: ubuntu-24.04
@@ -236,6 +282,7 @@ jobs:
       with:
         manifest-path: flatpak/io.github.wivrn.wivrn.yml
         bundle: wivrn-server.flatpak
+        branch: ${{ github.repository == 'Patola/WiVRn' && github.ref == 'refs/heads/codex/quest-v29-latency' && 'av1' || 'master' }}
         restore-cache: false
         save-cache: false
 
@@ -270,6 +317,55 @@ jobs:
     - uses: cachix/install-nix-action@v31
     - run: nix flake check
     - run: nix build --print-build-logs
+
+  publish-av1:
+    name: Publish Steam Frame AV1 downloads
+    needs: [build-steam-frame, build-server-flatpak, build-iris-av1]
+    runs-on: ubuntu-24.04
+    if: >-
+      github.repository == 'Patola/WiVRn' &&
+      github.ref == 'refs/heads/codex/quest-v29-latency' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      actions: read
+      contents: write
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - uses: actions/download-artifact@v8
+      with:
+        name: wivrn-av1-frame-client
+        path: av1-release
+    - uses: actions/download-artifact@v8
+      with:
+        name: wivrn-av1-iris-module
+        path: av1-release
+    - uses: actions/download-artifact@v8
+      with:
+        name: wivrn-server-x86_64.flatpak
+        path: av1-server
+    - name: Assemble and check matching release assets
+      run: tools/prepare-steam-frame-av1-release.py av1-release av1-server/wivrn-server.flatpak
+    - name: Publish complete prerelease
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        SOURCE_SHA: ${{ github.sha }}
+        BUILD_NUMBER: ${{ github.run_number }}
+        BUILD_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        tag="frame-av1-r${BUILD_NUMBER}-${BUILD_ATTEMPT}-${SOURCE_SHA:0:8}"
+        gh release create "$tag" av1-release/* \
+          --target "$SOURCE_SHA" --draft --prerelease \
+          --title "Steam Frame AV1 build ${BUILD_NUMBER}.${BUILD_ATTEMPT}" \
+          --notes-file av1-release/AV1-QUICKSTART.md
+        gh release edit "$tag" --draft=false --prerelease --latest=false
+        {
+          echo '### Steam Frame AV1 downloads'
+          echo "https://github.com/$GH_REPO/releases/tag/$tag"
+          echo 'Server, ARM64 client and kernel-specific Iris module are built from the same WiVRn commit.'
+        } >> "$GITHUB_STEP_SUMMARY"
 
   build-android:
     name: Android
@@ -555,7 +651,7 @@ jobs:
     - name: Release
       uses: softprops/action-gh-release@v3
       with:
-        tag_name: ${{ inputs.ref }}
+        tag_name: ${{ github.ref_name }}
         generate_release_notes: true
         draft: true
         files: |

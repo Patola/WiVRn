@@ -20,9 +20,13 @@ client must support that format. This follows the separate kernel workaround
 described in [SteamOS report 2954](https://github.com/ValveSoftware/SteamOS/issues/2954)
 and the [Iris AV1 proof of concept](https://github.com/mmis1000/steamframe-iris-av1-poc).
 
-Agent access to the headset remains **read-only**. The artifacts were built
+Initial headset inspection was **read-only**, and the artifacts were built
 on the PC. The user subsequently copied the client, temporarily loaded the
 patched module, and tested streaming; the results are recorded below.
+On November 19 the user authorized another temporary module load after a
+beta update. The device still reported the same SteamOS/kernel/configuration,
+and stock Iris still lacked AV1. The existing checked module was loaded after
+the user authenticated sudo; AV01 and linear NV12 were verified again.
 
 Initial device state on 2026-11-16, before the user loaded the patched module:
 
@@ -109,8 +113,10 @@ Optional cached inputs are `WIVRN_FRAME_HEADERS_ARCHIVE`,
 `WIVRN_BUILD_JOBS` controls parallelism.
 
 No loader or automatic system modification is added to the client. The user
-performed activation separately using a temporary driver swap. The agent did
-not modify the Frame under the read-only instruction.
+performed initial activation separately using a temporary driver swap. The
+separate module bundle now includes the guarded load/restore helper. The
+later authorized reload did not change installed modules, firmware or boot
+configuration.
 
 ## ARM64 client build
 
