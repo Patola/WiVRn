@@ -1,5 +1,9 @@
 # Personal Vulkan AV1 build
 
+For Steam Frame, start with the [CI-built package setup guide](steam-frame-av1-guide.md).
+Use [Local compilation (alternative)](steam-frame-av1-building.md) for the
+complete server, ARM64 client and Iris module build instructions.
+
 This work is on `codex/quest-v29-latency`. The translation branch (`master`)
 and the installed Envision WiVRn prefix are unchanged.
 

@@ -26,14 +26,27 @@ WiVRn support a wide range of VR devices:
 | HTC Vive Focus 3 | ✓ | Laggy | 
 | HTC Vive XR Elite | ✓ | Laggy |
 | Samsung Galaxy XR | ✓ |  |
+| Steam Frame | ✓ | Linux ARM64; [AV1 setup](docs/steam-frame-av1-guide.md) |
 | Other Android VR | ? | Cannot know |
 | Play for Dream | ✖ | https://github.com/WiVRn/WiVRn/issues/465 |
-| Non-Android VR | ✖ | Not Android |
+| Other non-Android VR | ? | Untested |
 | Non-VR Android | ✖ | VR required |
 
-<sup>A Linux client does exist, only for debugging. It has no audio or hardware decoding.</sup>
+<sup>The Steam Frame ARM64 client supports audio and V4L2 hardware decoding.
+AV1 requires a compatible Iris driver; see the setup guide below.</sup>
 
 # Getting started
+
+## Steam Frame AV1: CI-built packages
+
+Start with the **[CI-built package setup guide](docs/steam-frame-av1-guide.md)**
+and download a matching server, ARM64 client and patched Iris module from
+[Patola/WiVRn Releases](https://github.com/Patola/WiVRn/releases). The guide
+covers installation, the Steam shortcut, temporary driver loading, pairing
+and stock-driver restoration.
+
+For local builds, use **[Local compilation (alternative)](docs/steam-frame-av1-building.md)**,
+which retains all dependency, clone and build instructions.
 
 
 ## PC Server/Dashboard
@@ -135,12 +148,9 @@ The same overrides should work for other VR applications distributed as Flatpaks
 
 See [building](docs/building.md) for building the [dashboard](docs/building.md#dashboard), [server (PC)](docs/building.md#server-pc), and [client (headset)](docs/building.md#client-headset)
 
-For prebuilt server, Frame client and Iris module bundles, see
-[AV1 downloads](https://github.com/Patola/WiVRn/releases) and the
-[setup instructions](docs/steam-frame-av1-downloads.md).
-To compile this fork's experimental Steam Frame hardware AV1 support, follow the
-[complete Vulkan AV1 setup guide](docs/steam-frame-av1-guide.md), including
-the ARM64 client, matching Iris module and stock-driver restoration.
+For Steam Frame AV1, start with the [CI-built package setup guide](docs/steam-frame-av1-guide.md).
+The [local-compilation alternative](docs/steam-frame-av1-building.md) covers
+building this fork's server, ARM64 client and matching Iris module yourself.
 
 
 # Configuration

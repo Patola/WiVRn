@@ -70,8 +70,10 @@ def main():
     if not args.flatpak.is_file() or args.flatpak.stat().st_size == 0:
         raise ValueError("Server Flatpak bundle is missing or empty")
     shutil.copy2(args.flatpak, args.output / "wivrn-server-x86_64.flatpak")
-    shutil.copy2(root / "docs/steam-frame-av1-downloads.md", args.output / "AV1-QUICKSTART.md")
-    shutil.copy2(root / "docs/steam-frame-av1-guide.md", args.output / "BUILD-GUIDE.md")
+    quickstart = (root / "docs/steam-frame-av1-guide.md").read_text()
+    quickstart = quickstart.replace("(steam-frame-av1-building.md)", "(BUILD-GUIDE.md)")
+    (args.output / "AV1-QUICKSTART.md").write_text(quickstart)
+    shutil.copy2(root / "docs/steam-frame-av1-building.md", args.output / "BUILD-GUIDE.md")
     metadata = {
         "source_commit": commit,
         "source_url": f"https://github.com/Patola/WiVRn/tree/{commit}",

@@ -1,5 +1,9 @@
 # Building
 
+For Steam Frame AV1, start with the [CI-built package setup guide](steam-frame-av1-guide.md).
+To build locally instead, use the [complete local-compilation alternative](steam-frame-av1-building.md).
+The general server, dashboard and Android build instructions follow below.
+
 # Server (PC)
 
 ## Compile
