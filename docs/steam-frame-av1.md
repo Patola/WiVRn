@@ -11,8 +11,10 @@ through `47651c00`, including the Frame controller, battery, startup and
 codec-specific 10-bit detection changes.
 The existing Vulkan AV1 server encoder and VAAPI reconfiguration fix are retained.
 The translation branch is unchanged. The new local Envision profile uses
-`WIVRN_USE_SYSTEM_BOOST=ON`; configuration of bundled Boost.Locale failed on
-the host, leaving an incomplete build directory without `build.ninja`.
+`WIVRN_USE_SYSTEM_BOOST=ON`. The earlier bundled Boost.Locale configuration
+failure left an incomplete build directory without `build.ninja`; this
+branch now backports the upstream source-group fix for CMake 4.5 so bundled
+Boost builds work as well.
 
 ## Use the stock SteamOS AV1 driver
 

@@ -190,8 +190,9 @@ getcap "$HOME/.local/share/wivrn-av1/bin/wivrn-server"
 ```
 
 Stop if configuration fails; a failed configure does not produce a usable
-`build.ninja`. The system Boost option avoids the bundled Boost.Locale
-configuration failure seen with CMake 4.5 on the tested PC.
+`build.ninja`. This example uses distribution-provided Boost. Bundled Boost
+is supported too: this branch backports Boost.Locale's source-group fix for
+CMake 4.5.
 
 Build **all targets**, including the matching OpenXR runtime library. Building
 only `wivrn-server` after changing revisions can leave a mismatched library
