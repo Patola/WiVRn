@@ -71,7 +71,7 @@ protected:
 	void * encode_info_next(uint32_t frame_num, size_t slot, std::optional<int32_t> ref_slot) override;
 	virtual vk::ExtensionProperties std_header_version() override;
 
-	std::vector<uint8_t> get_idr_data() override;
+	void send_idr_data() override;
 
 public:
 	static std::unique_ptr<video_encoder_vulkan_h265> create(wivrn::vk_bundle & vk,

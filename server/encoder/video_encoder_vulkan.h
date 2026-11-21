@@ -67,7 +67,6 @@ class video_encoder_vulkan : public video_encoder
 		buffer_allocation host_buffer;
 		vk::DeviceSize copy_size;
 		bool idr = false;
-		std::vector<uint8_t> idr_data;
 		std::atomic<bool> busy = false;
 	};
 	std::array<slot_item, num_slots> slot_data;
@@ -105,11 +104,8 @@ protected:
 	virtual ~video_encoder_vulkan();
 
 	std::vector<uint8_t> get_encoded_parameters(void * next);
-	void replace_session_parameters(const void * next);
 
-	virtual std::vector<uint8_t> get_idr_data() = 0;
-	// Called before recording a frame when the rate control settings change.
-	virtual void rate_control_updated() {}
+	virtual void send_idr_data() = 0;
 
 	virtual std::vector<void *> setup_slot_info(size_t dpb_size) = 0;
 	virtual void * encode_info_next(uint32_t frame_num, size_t slot, std::optional<int32_t> reference_slot) = 0;
@@ -118,7 +114,7 @@ protected:
 	// Codec-specific structures to prepend to the vkCmdBeginVideoCodingKHR pNext chain.
 	// Note that this chain accepts structures the vkCmdControlVideoCodingKHR one does not,
 	// so it must not be reused for rate control updates.
-	virtual const void * begin_coding_next(const void * next, bool)
+	virtual const void * begin_coding_next(const void * next)
 	{
 		return next;
 	}

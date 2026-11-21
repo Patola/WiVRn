@@ -641,23 +641,6 @@ std::vector<uint8_t> wivrn::video_encoder_vulkan::get_encoded_parameters(void * 
 	return encoded;
 }
 
-void wivrn::video_encoder_vulkan::replace_session_parameters(const void * next)
-{
-	auto replacement = vk.device.createVideoSessionParametersKHR({
-	        .pNext = next,
-	        .videoSession = *video_session,
-	});
-	// Old command buffers may still refer to the previous parameters. Wait
-	// only for this encoder's work before replacing them.
-	std::array<vk::Fence, num_slots> fences;
-	for (size_t i = 0; i < num_slots; ++i)
-		fences[i] = *slot_data[i].fence;
-	if (vk.device.waitForFences(fences, true, 1'000'000'000) == vk::Result::eTimeout)
-		throw std::runtime_error("Timeout replacing Vulkan video session parameters");
-	video_session_parameters = std::move(replacement);
-	idr->reset();
-}
-
 void wivrn::video_encoder_vulkan::present_image(vk::Image y_cbcr, vk::SemaphoreSubmitInfo compositor_sem, uint8_t encode_slot, uint64_t frame_index)
 {
 	auto & slot_item = slot_data[encode_slot];
@@ -668,39 +651,6 @@ void wivrn::video_encoder_vulkan::present_image(vk::Image y_cbcr, vk::SemaphoreS
 		return;
 	}
 	slot_item.busy.wait(true);
-
-	// BeginCoding describes the state left by the preceding scope. New
-	// settings are applied by ControlVideoCoding inside this scope.
-	auto begin_rate_control = rate_control;
-	auto begin_rate_control_layer = rate_control_layer;
-	if (begin_rate_control)
-		begin_rate_control->pLayers = &begin_rate_control_layer;
-
-	bool update_rate_control = false;
-	if (auto bitrate = pending_bitrate.exchange(0); bitrate and rate_control)
-	{
-		rate_control_layer.averageBitrate = std::min<uint64_t>(bitrate, encode_caps.maxBitrate);
-		switch (rate_control->rateControlMode)
-		{
-			case vk::VideoEncodeRateControlModeFlagBitsKHR::eCbr:
-				rate_control_layer.maxBitrate = rate_control_layer.averageBitrate;
-				break;
-			case vk::VideoEncodeRateControlModeFlagBitsKHR::eVbr:
-				rate_control_layer.maxBitrate = std::min(2 * rate_control_layer.averageBitrate, encode_caps.maxBitrate);
-				break;
-			default:
-				break;
-		}
-		update_rate_control = true;
-	}
-	if (auto framerate = pending_framerate.exchange(0); framerate and rate_control)
-	{
-		rate_control_layer.frameRateNumerator = uint32_t(framerate * 1'000'000);
-		rate_control_layer.frameRateDenominator = 1'000'000;
-		update_rate_control = true;
-	}
-	if (update_rate_control)
-		rate_control_updated();
 
 	auto & video_cmd_buf = slot_item.video_cmd_buf;
 	video_cmd_buf.begin({.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
@@ -857,10 +807,6 @@ void wivrn::video_encoder_vulkan::present_image(vk::Image y_cbcr, vk::SemaphoreS
 	std::unique_lock lock(dpb.mutex);
 	auto [ref_slot, slot] = dpb.get_ref(frame_index);
 	slot_item.idr = ref_slot == nullptr;
-	// Keep each key frame paired with the parameters used to encode it, even
-	// if a later frame changes them before this one reaches the sender.
-	if (slot_item.idr)
-		slot_item.idr_data = get_idr_data();
 
 	vk::VideoReferenceSlotInfoKHR init_refs[2] = {};
 	init_refs[0] = slot->info;
@@ -875,7 +821,7 @@ void wivrn::video_encoder_vulkan::present_image(vk::Image y_cbcr, vk::SemaphoreS
 	}
 
 	video_cmd_buf.beginVideoCodingKHR({
-	        .pNext = begin_coding_next((session_initialized and begin_rate_control) ? &begin_rate_control.value() : nullptr, slot_item.idr),
+	        .pNext = begin_coding_next((session_initialized and rate_control) ? &rate_control.value() : nullptr),
 	        .videoSession = *video_session,
 	        .videoSessionParameters = *video_session_parameters,
 	        .referenceSlotCount = ref_slot ? 2u : 1u,
@@ -920,6 +866,29 @@ void wivrn::video_encoder_vulkan::present_image(vk::Image y_cbcr, vk::SemaphoreS
 		session_initialized = true;
 	}
 
+	bool update_rate_control = false;
+	if (auto bitrate = pending_bitrate.exchange(0); bitrate and rate_control)
+	{
+		rate_control_layer.averageBitrate = std::min<uint64_t>(bitrate, encode_caps.maxBitrate);
+		switch (rate_control->rateControlMode)
+		{
+			case vk::VideoEncodeRateControlModeFlagBitsKHR::eCbr:
+				rate_control_layer.maxBitrate = rate_control_layer.averageBitrate;
+				break;
+			case vk::VideoEncodeRateControlModeFlagBitsKHR::eVbr:
+				rate_control_layer.maxBitrate = std::min(2 * rate_control_layer.averageBitrate, encode_caps.maxBitrate);
+				break;
+			default:
+				break;
+		}
+		update_rate_control = true;
+	}
+	if (auto framerate = pending_framerate.exchange(0); framerate and rate_control)
+	{
+		rate_control_layer.frameRateNumerator = uint32_t(framerate * 1'000'000);
+		rate_control_layer.frameRateDenominator = 1'000'000;
+		update_rate_control = true;
+	}
 	if (update_rate_control)
 		video_cmd_buf.controlVideoCodingKHR(
 		        vk::VideoCodingControlInfoKHR{
@@ -1082,7 +1051,7 @@ std::optional<wivrn::video_encoder::data> wivrn::video_encoder_vulkan::encode(ui
 {
 	auto & slot_item = slot_data[encode_slot];
 	if (slot_item.idr)
-		SendData(slot_item.idr_data, false, true);
+		send_idr_data();
 
 	if (vk.device.waitForFences(*slot_item.fence, true, 1'000'000'000) == vk::Result::eTimeout)
 	{

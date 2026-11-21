@@ -188,10 +188,6 @@ if (WIVRN_BUILD_SERVER)
 			encoder/video_encoder_vulkan_h264.cpp
 			encoder/video_encoder_vulkan_h265.cpp
 			)
-		if(WIVRN_BUILD_TEST)
-			add_executable(av1-level-test test_av1_level.cpp)
-			target_link_libraries(av1-level-test PRIVATE Vulkan::Headers)
-		endif()
 	endif()
 
 	if(WIVRN_USE_X264)

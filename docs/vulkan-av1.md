@@ -1,42 +1,34 @@
-# Personal Vulkan AV1 build
+# Vulkan AV1 in this fork
 
 For Steam Frame, start with the [CI-built package setup guide](steam-frame-av1-guide.md).
 Use [Local compilation (alternative)](steam-frame-av1-building.md) for the
-complete server, ARM64 client and Iris module build instructions.
+complete server and ARM64 client build instructions. Use SteamOS's stock
+AV1-capable driver; the custom kernel module is retired.
 
 This work is on `codex/quest-v29-latency`. The translation branch (`master`)
 and the installed Envision WiVRn prefix are unchanged.
 
 ## Source and changes
 
-[WiVRn PR 1087](https://github.com/WiVRn/WiVRn/pull/1087) was merged at
-`b6c45786` (nine commits), preserving its history. It adds Vulkan Video AV1,
-including 8-bit and 10-bit Main-profile encoding. No client protocol change
-is needed. Automatic backend selection retains its existing preferences;
-select the Vulkan backend explicitly to use this experimental encoder.
+Upstream merged Vulkan AV1 in
+[`04837ba2`](https://github.com/WiVRn/WiVRn/commit/04837ba215b90fae63fa49d4166f54cd364e536b).
+This branch now merges that upstream revision and uses its Vulkan encoder,
+including the shared H.264/H.265 encoder interfaces and capability probing.
+The previous local AV1 changes, level/tier helper and its standalone tests
+were removed in favor of upstream's implementation.
 
-Local additions:
+Vulkan AV1 supports 8-bit and 10-bit Main-profile encoding. Select Vulkan
+explicitly: automatic backend selection keeps upstream's existing preferences.
+The upstream implementation currently uses a single tile and rejects AV1
+streams wider than 4096 pixels per encoder stream. The former local support
+for wider streams and custom level/tier updates is no longer part of this
+branch. Use the capabilities of the current upstream implementation when
+choosing stream layouts and settings.
 
-- Check the enabled `videoEncodeAV1` feature as well as the extension and queue.
-- Let the driver choose the tile layout. Vulkan explicitly permits a null
-  `pTileInfo`; this respects driver limits and removes the patch's single-tile
-  4096-pixel width restriction.
-- Select a sequence level and tier using resolution, display rate, and peak
-  bitrate. Reject requirements above the driver's maximum level. The original
-  selector considered decode rate alone and always signaled Main tier.
-- Upgrade sequence parameters and send a new key frame when live bitrate or
-  refresh-rate increases require a higher level/tier. Keep the existing level
-  when lowering settings. Wait for this encoder's pending GPU commands before
-  replacing parameters, and retain the appropriate header with each key frame.
-- Keep the previous rate-control state in `BeginVideoCoding`, then apply new
-  settings with `ControlVideoCoding` inside that scope.
-- Use valid reference indices even for reference names not used for prediction;
-  prediction still follows WiVRn's acknowledged-frame tracking.
-- Correct the default-rate-control quantizer field and GOP remaining-frame
-  counts, and fail explicitly if no sequence header is returned.
-
-Relevant specifications: [Vulkan AV1 picture parameters](https://docs.vulkan.org/refpages/latest/refpages/source/VkVideoEncodeAV1PictureInfoKHR.html)
-and [AV1 levels and tiers](https://aomediacodec.github.io/av1-spec/#levels).
+The Frame's V4L2 AV1 decoder support, bundled ARM64 OpenXR loader, VAAPI live
+reconfiguration fix, Boost.Locale build fix and server/client release workflow
+remain because these changes are not in the synchronized upstream revision.
+No wire-protocol change is introduced by this synchronization.
 
 ## Build and configuration
 
@@ -70,16 +62,6 @@ Monado layer that otherwise injects a second timeline-semaphore feature
 structure and produces an unrelated device-creation validation error.
 It is only needed for clean validation; the system configuration was not changed.
 
-CPU regression tests cover display-rate boundaries, fractional refresh rates,
-bitrate tiers, live-upgrade selection, retained levels on decreases, and
-rejection above driver limits:
-
-```sh
-cmake -S . -B build-quest-server -DWIVRN_BUILD_TEST=ON
-cmake --build build-quest-server -j8
-./build-quest-server/server/av1-level-test
-```
-
 Always build all targets after changing commits, so the server and OpenXR
 library have matching version tags (otherwise WayVR can fail to start).
 
@@ -107,9 +89,34 @@ To build this source through Envision, use a separate profile and set:
 Envision can clone the local Git repository, so no push is required. Build
 that profile and select Vulkan + AV1 for the desired encoder streams in its
 WiVRn settings. The settings apply to whichever WiVRn server is being
-configured; regular unpatched servers cannot use the new combination.
+configured. Current upstream WiVRn also supports this encoder combination.
 
-## Validation on this system
+## Validation after synchronizing to upstream `04837ba2`
+
+- The full Linux server and matching OpenXR runtime build with bundled
+  Boost, CMake 4.5.1 and warnings treated as errors.
+- The headless GPU test on the RX 7900 XTX completes 30 frames for each of
+  H.264 8-bit, HEVC 8/10-bit and AV1 8/10-bit at 1280×1344. Each configuration
+  changes total bitrate 50 → 140 → 50 Mbit/s and nominal refresh rate
+  80 → 120 → 80 Hz. The Khronos validation layer reports no validation errors.
+- A 4608×1024 test is rejected with upstream's single-tile width-limit error,
+  as expected. The wider-stream support in the historical results below
+  does not apply to this encoder.
+- The Vulkan encoder sources and capability probing match the synchronized
+  upstream revision. The Frame decoder, VAAPI fixes, Boost build patch and
+  module-free release packaging are unchanged by the merge.
+
+These checks cover compilation and GPU command submission/completion. They
+do not establish decoded image quality or replace a new headset streaming
+test. Logs and the temporary GPU harness are in the ignored
+`build-frame-av1/upstream-sync/` directory.
+
+## Historical validation before the upstream encoder switch
+
+The following results describe the previous local encoder implementation.
+They are retained as history, not as validation of the newly adopted upstream
+encoder. In particular, its wider-stream and custom level/tier behavior no
+longer applies.
 
 - Full Linux server/OpenXR-library build succeeds with Vulkan headers 1.4.363.
 - CPU AV1 level/tier regression checks pass.

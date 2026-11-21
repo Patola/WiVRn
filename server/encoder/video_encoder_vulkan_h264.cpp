@@ -279,9 +279,10 @@ std::vector<uint8_t> wivrn::video_encoder_vulkan_h264::get_sps_pps()
 	return get_encoded_parameters(&next);
 }
 
-std::vector<uint8_t> wivrn::video_encoder_vulkan_h264::get_idr_data()
+void wivrn::video_encoder_vulkan_h264::send_idr_data()
 {
-	return get_sps_pps();
+	auto data = get_sps_pps();
+	SendData(data, false, true);
 }
 
 void * wivrn::video_encoder_vulkan_h264::encode_info_next(uint32_t frame_num, size_t slot, std::optional<int32_t> ref_slot)

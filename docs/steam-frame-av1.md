@@ -7,9 +7,11 @@ For cloning and building the server and ARM64 client yourself, use
 This page records implementation details and test results.
 
 This work stays on `codex/quest-v29-latency`. Upstream `master` was merged
-through `47651c00`, including the Frame controller, battery, startup and
-codec-specific 10-bit detection changes.
-The existing Vulkan AV1 server encoder and VAAPI reconfiguration fix are retained.
+through `04837ba2`, including upstream's Vulkan AV1 encoder and replacement
+of custom pose bitcasts with `std::bit_cast`. The Vulkan encoder now follows
+upstream rather than the earlier local variant; see
+[the synchronization notes](vulkan-av1.md#source-and-changes).
+The Frame AV1 decoder and VAAPI reconfiguration fix are retained.
 The translation branch is unchanged. The new local Envision profile uses
 `WIVRN_USE_SYSTEM_BOOST=ON`. The earlier bundled Boost.Locale configuration
 failure left an incomplete build directory without `build.ninja`; this
