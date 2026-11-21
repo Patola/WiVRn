@@ -54,8 +54,12 @@ def main():
     if os.environ.get("GITHUB_SHA", commit) != commit:
         raise ValueError("Checkout differs from the workflow's source commit")
     allowed_assets = {
-        "wivrn-frame-av1-arm64.tar.xz", "wivrn-server-x86_64.flatpak",
-        "AV1-QUICKSTART.md", "BUILD-GUIDE.md", "SOURCE.json", "SHA256SUMS",
+        "wivrn-frame-av1-arm64.tar.xz",
+        "wivrn-server-x86_64.flatpak",
+        "AV1-QUICKSTART.md",
+        "BUILD-GUIDE.md",
+        "SOURCE.json",
+        "SHA256SUMS",
     }
     unexpected = {path.name for path in args.output.iterdir()} - allowed_assets
     if unexpected:
