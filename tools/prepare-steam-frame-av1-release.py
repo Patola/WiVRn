@@ -11,9 +11,6 @@ import subprocess
 import tarfile
 from pathlib import Path, PurePosixPath
 
-KERNEL = "7.2.0-g344f27110f05"
-CONFIG_SHA = "55a25adc47f0692b0aab337cf30b339a6b6ba0a899d30be05b83914b0754d4d0"
-
 
 def stream_sha256(data):
     digest = hashlib.sha256()
@@ -22,10 +19,10 @@ def stream_sha256(data):
     return digest.hexdigest()
 
 
-def verify_bundle(archive, root, component, commit):
+def verify_bundle(archive, root, commit):
     with tarfile.open(archive, "r:xz") as bundle:
         source = json.load(bundle.extractfile(f"{root}/SOURCE.json"))
-        if source["source_commit"] != commit or source["component"] != component:
+        if source["source_commit"] != commit or source["component"] != "client":
             raise ValueError(f"{archive}: source commit/component mismatch")
         if source["architecture"] != "aarch64":
             raise ValueError(f"{archive}: expected ARM64")
@@ -42,14 +39,8 @@ def verify_bundle(archive, root, component, commit):
                 actual = stream_sha256(data)
             if actual != expected:
                 raise ValueError(f"{archive}: checksum mismatch for {name}")
-        if component == "client":
-            if not bundle.getmember(f"{root}/bin/wivrn").mode & 0o111:
-                raise ValueError("Client archive lost executable permissions")
-        else:
-            config = bundle.extractfile(f"{root}/kernel-config.sha256").read().decode().strip()
-            info = bundle.extractfile(f"{root}/build-info.txt").read().decode()
-            if config != CONFIG_SHA or f"kernel={KERNEL}\n" not in info:
-                raise ValueError("Iris archive does not match the supported kernel/configuration")
+        if not bundle.getmember(f"{root}/bin/wivrn").mode & 0o111:
+            raise ValueError("Client archive lost executable permissions")
     return source
 
 
@@ -62,11 +53,16 @@ def main():
     commit = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip()
     if os.environ.get("GITHUB_SHA", commit) != commit:
         raise ValueError("Checkout differs from the workflow's source commit")
+    allowed_assets = {
+        "wivrn-frame-av1-arm64.tar.xz", "wivrn-server-x86_64.flatpak",
+        "AV1-QUICKSTART.md", "BUILD-GUIDE.md", "SOURCE.json", "SHA256SUMS",
+    }
+    unexpected = {path.name for path in args.output.iterdir()} - allowed_assets
+    if unexpected:
+        raise ValueError(f"Unexpected release assets: {', '.join(sorted(unexpected))}")
     client = verify_bundle(
-        args.output / "wivrn-frame-av1-arm64.tar.xz", "wivrn-frame-av1-arm64", "client", commit
+        args.output / "wivrn-frame-av1-arm64.tar.xz", "wivrn-frame-av1-arm64", commit
     )
-    iris_name = f"iris-av1-{KERNEL}-aarch64"
-    iris = verify_bundle(args.output / f"{iris_name}.tar.xz", iris_name, "iris", commit)
     if not args.flatpak.is_file() or args.flatpak.stat().st_size == 0:
         raise ValueError("Server Flatpak bundle is missing or empty")
     shutil.copy2(args.flatpak, args.output / "wivrn-server-x86_64.flatpak")
@@ -81,9 +77,6 @@ def main():
         "server_architecture": "x86_64",
         "flatpak_branch": "av1",
         "client": client,
-        "iris": iris,
-        "required_kernel": KERNEL,
-        "required_kernel_config_sha256": CONFIG_SHA,
         "hardware_tested_by_ci": False,
     }
     (args.output / "SOURCE.json").write_text(json.dumps(metadata, indent=2) + "\n")

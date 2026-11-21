@@ -4,58 +4,45 @@
 set -euo pipefail
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 die() { printf '%s\n' "$*" >&2; exit 1; }
-[[ $# == 3 && ( $1 == client || $1 == iris ) ]] || die "Usage: $0 client|iris INPUT_DIRECTORY OUTPUT_DIRECTORY"
+[[ $# == 3 && $1 == client ]] || die "Usage: $0 client INPUT_DIRECTORY OUTPUT_DIRECTORY"
 component=$1
 input=$(realpath -- "$2")
 mkdir -p -- "$3"
 output=$(realpath -- "$3")
 [[ $output/ != "$input/"* ]] || die 'Output must be outside the input tree.'
 
-if [[ $component == client ]]; then
-    [[ -x $input/bin/wivrn ]] || die 'Client executable is missing or not executable.'
-    [[ -f $input/lib/libopenxr_loader.so.1 && -d $input/share/wivrn/assets ]] || die 'Copy the complete installed usr tree, including the OpenXR loader and assets.'
-    readelf -h "$input/bin/wivrn" | grep -q 'Machine:.*AArch64' || die 'Expected an ARM64 client.'
-    name=wivrn-frame-av1-arm64
-else
-    (cd "$input" && sha256sum --check SHA256SUMS)
-    [[ -f $input/iris-av1-session.sh && -f $input/kernel-config.sha256 ]] || die 'Module loader or configuration fingerprint is missing.'
-    [[ $(modinfo -F name "$input/iris-av1.ko") == iris ]] || die 'Expected an Iris module.'
-    readelf -h "$input/iris-av1.ko" | grep -q 'Machine:.*AArch64' || die 'Expected an ARM64 module.'
-    kernel=$(modinfo -F vermagic "$input/iris-av1.ko")
-    kernel=${kernel%% *}
-    name="iris-av1-$kernel-aarch64"
-fi
+[[ -x $input/bin/wivrn ]] || die 'Client executable is missing or not executable.'
+[[ -f $input/lib/libopenxr_loader.so.1 && -d $input/share/wivrn/assets ]] || die 'Copy the complete installed usr tree, including the OpenXR loader and assets.'
+readelf -h "$input/bin/wivrn" | grep -q 'Machine:.*AArch64' || die 'Expected an ARM64 client.'
+name=wivrn-frame-av1-arm64
 
 stage=$(mktemp -d "$output/.package.XXXXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
 mkdir "$stage/$name"
 cp -a "$input/." "$stage/$name/"
-if [[ $component == client ]]; then
-    cp "$repo_dir/COPYING" "$stage/$name/COPYING"
-    cp "$repo_dir/LICENSE-OFL-1.1" "$stage/$name/LICENSE-OFL-1.1"
-    # These permissively licensed dependencies are compiled into the client.
-    # Keep their notices next to the binary and the corresponding-source URL.
-    deps=${FETCHCONTENT_BASE_DIR:-$repo_dir/cmake-fetch}
-    if [[ -d $deps ]]; then
-        mkdir -p "$stage/$name/licenses"
-        (
-            cd "$deps"
-            find . -maxdepth 4 -type f \( -iname 'license*' -o -iname 'copying*' -o -iname 'notice*' \) \
-                -exec cp --parents -- '{}' "$stage/$name/licenses/" \;
-        )
-    fi
-    cat > "$stage/$name/README.txt" <<'EOF'
+cp "$repo_dir/COPYING" "$stage/$name/COPYING"
+cp "$repo_dir/LICENSE-OFL-1.1" "$stage/$name/LICENSE-OFL-1.1"
+# These permissively licensed dependencies are compiled into the client.
+# Keep their notices next to the binary and the corresponding-source URL.
+deps=${FETCHCONTENT_BASE_DIR:-$repo_dir/cmake-fetch}
+if [[ -d $deps ]]; then
+    mkdir -p "$stage/$name/licenses"
+    (
+        cd "$deps"
+        find . -maxdepth 4 -type f \( -iname 'license*' -o -iname 'copying*' -o -iname 'notice*' \) \
+            -exec cp --parents -- '{}' "$stage/$name/licenses/" \;
+    )
+fi
+cat > "$stage/$name/README.txt" <<'EOF'
 WiVRn Steam Frame AV1 client (Linux ARM64).
 Keep bin, lib and share together. Add bin/wivrn as a native non-Steam game
 on the Frame and launch it there through Steam, without Proton.
 The bundled lib/ is the OpenXR loader; AV1 hardware decoding uses Iris.
-AV1 requires a matching driver exposing AV01 and linear NV12; this client
-does not modify or load drivers. This workaround supports 8-bit AV1.
-See AV1-QUICKSTART.md in the release for setup and rollback instructions.
+Use SteamOS's stock Iris driver with AV01 and linear NV12 support. This
+client supports 8-bit AV1 and does not modify or load drivers.
+The old custom kernel module is retired; do not load it on current SteamOS.
+See AV1-QUICKSTART.md in the release for setup instructions.
 EOF
-else
-    cp "$repo_dir/COPYING" "$stage/$name/COPYING-LOADER"
-fi
 
 python3 - "$repo_dir" "$stage/$name/SOURCE.json" "$component" <<'PY'
 import json

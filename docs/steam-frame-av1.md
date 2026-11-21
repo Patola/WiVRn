@@ -1,8 +1,8 @@
 # Steam Frame AV1 hardware decoding
 
 Start with the [CI-built package setup guide](steam-frame-av1-guide.md) for
-downloads, deployment, the Steam shortcut, temporary activation and restoration.
-For cloning and building all three components yourself, use
+downloads, deployment, the Steam shortcut and connection.
+For cloning and building the server and ARM64 client yourself, use
 [Local compilation (alternative)](steam-frame-av1-building.md).
 This page records implementation details and test results.
 
@@ -14,33 +14,11 @@ The translation branch is unchanged. The new local Envision profile uses
 `WIVRN_USE_SYSTEM_BOOST=ON`; configuration of bundled Boost.Locale failed on
 the host, leaving an incomplete build directory without `build.ninja`.
 
-## Two components are required
+## Use the stock SteamOS AV1 driver
 
 WiVRn cannot make an absent kernel codec available by changing its advertised
 codec list. The Frame's Iris driver must expose stateful AV1 (`AV01`), and the
-client must support that format. This follows the separate kernel workaround
-described in [SteamOS report 2954](https://github.com/ValveSoftware/SteamOS/issues/2954)
-and the [Iris AV1 proof of concept](https://github.com/mmis1000/steamframe-iris-av1-poc).
-
-Initial headset inspection was **read-only**, and the artifacts were built
-on the PC. The user subsequently copied the client, temporarily loaded the
-patched module, and tested streaming; the results are recorded below.
-On November 19 the user authorized another temporary module load after a
-beta update. The device still reported the same SteamOS/kernel/configuration,
-and stock Iris still lacked AV1. The existing checked module was loaded after
-the user authenticated sudo; AV01 and linear NV12 were verified again.
-
-Initial device state on 2026-11-16, before the user loaded the patched module:
-
-| Item | Value |
-| --- | --- |
-| SteamOS | 0.5.9, build `20261113.6134720` |
-| Kernel | `7.2.0-g344f27110f05`, aarch64 |
-| Decoder | `/dev/video-dec0` → `/dev/video22`, Iris |
-| Advertised coded formats | H264, HEVC, VP90; no AV01 |
-| Firmware | Existing `qcom/vpu/vpu33_4v.mbn` |
-
-### Native AV1 after the November 19 update
+client must support that format. Current SteamOS supplies the driver support.
 
 A subsequent beta update installed SteamOS **0.5.10**, build
 `20261118.6185655`, with kernel **`7.2.0-g04c7e99cb73a`**. Its signed stock
@@ -52,7 +30,18 @@ No patched module was loaded on this kernel. The existing custom ARM64
 client produced two `V4L2 iris DMA-buf capture` queues with `NV12 (8-bit)`,
 and the user confirmed smooth AV1 streaming. The old rebind service was
 already inactive because its old-driver path condition no longer matched.
-The `7.2.0-g344f27110f05` module remains only for the older matching kernel.
+
+On November 21 the custom kernel module was retired because it can conflict
+with Steam Link on current SteamOS. Its builder, temporary load/restore helper,
+CI job and release asset were removed. Use the stock driver; if our temporary
+module is still loaded, reboot the Frame and stop using the old loader.
+Earlier releases may contain the retired module and should not be used for
+driver setup. Update older SteamOS installations to obtain native AV1.
+
+The original investigation used
+[mmis1000's Iris AV1 proof of concept](https://github.com/mmis1000/steamframe-iris-av1-poc)
+on SteamOS 0.5.9. That experimental module is historical; the WiVRn client
+and server AV1 implementation remains available.
 
 ## Client changes
 
@@ -63,76 +52,25 @@ FFmpeg decoder paths are unchanged.
   define the different stateless `AV1_FRAME` format, so the FourCC is defined
   locally without depending on newer userspace headers.
 - Advertise AV1 only when Iris enumerates it, accepts selection on a temporary
-  descriptor, and offers linear NV12 for that codec. Stock kernels continue
-  to advertise the supported HEVC/H.264 choices.
+  descriptor, and offers linear NV12 for that codec. Drivers without that
+  support continue to advertise the supported HEVC/H.264 choices.
 - Parse the AV1 sequence headers on OUTPUT before creating/starting CAPTURE,
   as the existing HEVC path already does.
-- Request linear NV12 after SOURCE_CHANGE. The patched driver defaults to
-  Qualcomm's compressed Q08C, which this Vulkan import path cannot use.
+- Request linear NV12 after SOURCE_CHANGE. Qualcomm's compressed Q08C cannot
+  be used by this Vulkan import path.
 - Recycle empty CAPTURE buffers without displaying old pixels or consuming
   the pending frame's metadata.
-- Advertise **8-bit AV1 only**. The workaround offers NV12 and compressed
-  TP10C rather than the linear P010 needed by the current import path.
-  Server capability negotiation therefore selects 8-bit for the Frame even
-  if the server normally uses 10-bit with another headset.
+- Advertise **8-bit AV1 only**. This remains the validated client path even
+  though newer drivers also offer P010. Server capability negotiation selects
+  8-bit for the Frame even if the server normally uses 10-bit with another
+  headset.
 - Bundle the built OpenXR loader with ARM64 V4L2 installations and use a
   relative library search path. Assets and libraries remain inside the
   extracted client directory.
 
 The client does not load a kernel module, acquire root privileges, or pretend
-AV1 is supported on the unmodified driver. Restart it after a driver change
-because codec capabilities are cached for the process lifetime.
-
-## Matching kernel module
-
-The proof of concept originally targets kernel 6.18. It must not be loaded
-into this Frame's 7.2 kernel. The local builder instead uses:
-
-| Input | Pinned value |
-| --- | --- |
-| Kernel source | `evlaV/deckard-linux-no-oopsies`, `344f27110f059d0520c9dbbafc503d4bbc6c1f68` |
-| Iris patch | `mmis1000/steamframe-iris-av1-poc`, `c2df9372d76a8ffbcf6c987ef980f9acf35d8e53` |
-| Header package | `linux-72-deckard-headers-7.2.0+g344f27110f05-1-aarch64.pkg.tar.zst` |
-| Header archive SHA-256 | `56b3f7a22f4a656bdfcd3ad6adbe88f9b85544650d12aabb69aee30d96ae752c` |
-| Running/header config SHA-256 | `55a25adc47f0692b0aab337cf30b339a6b6ba0a899d30be05b83914b0754d4d0` |
-
-The pinned patch applies unchanged to this source revision. It includes the
-AV1 codec/buffer handling, IRQ initialization correction and corrected NV12
-format mask. Its original kernel-source copyright and GPL-2.0-only attribution
-are retained; the patch is fetched separately rather than relicensed as WiVRn.
-
-Build on an x86-64 Linux PC, using a new output directory:
-
-```sh
-./tools/build-steam-frame-iris-av1.sh build-frame-iris-7.2
-```
-
-The script downloads and verifies the header and cross-compiler archives,
-fetches pinned source revisions, and builds only Iris. It preserves the
-package's configuration and symbol CRCs, and checks them again after building.
-The resulting module has vermagic:
-
-```text
-7.2.0-g344f27110f05 SMP preempt mod_unload aarch64
-```
-
-The cross compiler is GCC 15.1.0; Valve's kernel was built with GCC 15.2.1.
-Kbuild reports this difference. The output is unsigned, and optional BTF
-generation is skipped; neither changes the installed kernel or its firmware.
-Matching configuration/vermagic and a successful build alone do **not**
-establish runtime compatibility. See the device-specific streaming results
-below; other kernels and devices are not covered by those tests.
-
-Optional cached inputs are `WIVRN_FRAME_HEADERS_ARCHIVE`,
-`WIVRN_FRAME_GCC_ARCHIVE`, `WIVRN_FRAME_KERNEL_SOURCE` and
-`WIVRN_FRAME_IRIS_POC_SOURCE`. Revisions and archive checksums are still checked.
-`WIVRN_BUILD_JOBS` controls parallelism.
-
-No loader or automatic system modification is added to the client. The user
-performed initial activation separately using a temporary driver swap. The
-separate module bundle now includes the guarded load/restore helper. The
-later authorized reload did not change installed modules, firmware or boot
-configuration.
+AV1 is supported on a driver without AV1 capability. Restart it after a
+driver change because codec capabilities are cached for the process lifetime.
 
 ## ARM64 client build
 
@@ -198,10 +136,6 @@ preserved, and no protocol compatibility check was bypassed.
   QEMU on the PC. They cover stock-driver behavior, AV1 with only compressed
   output, corrected AV01/NV12 support, rejected format selection, 8-bit
   negotiation, preservation of HEVC behavior and descriptor cleanup.
-- The separate module builds with the pinned 7.2 headers. Header configuration
-  matches the read-only device observation, configuration/symbol CRC files
-  remain unchanged, and module name/architecture/vermagic checks pass.
-- ShellCheck and Bash syntax checks pass for the module builder.
 
 The user tested the patched module and ARM64 client on the Frame on
 2026-11-16. They reported smooth detailed gameplay for more than ten minutes,
@@ -228,6 +162,10 @@ throttling, then reconnect. The compositor log at
 `~/.local/share/Steam/logs/vrcompositor.txt` records the selected display mode.
 See [Valve's per-application settings documentation](https://partner.steamgames.com/doc/steamhardware/steamframe/vrpreferences).
 
+After the user applied the per-application 90 Hz override and reconnected
+on November 20, the compositor remained at approximately 90 Hz and WiVRn's
+refresh requests succeeded. The user also confirmed 90 Hz in the client UI.
+
 The updated Quest Local client was also tested against this server. Its log
 records three `c2.qti.av1.decoder` MediaCodec instances at 90 Hz, and the user
 confirmed smooth streaming without a version mismatch. Frame three-stream
@@ -235,4 +173,4 @@ operation and other kernel/firmware versions have not been validated.
 
 Local build products are under `build-frame-av1/`, which is ignored by Git.
 Device inspection logs and temporary SDK/build files are not part of the
-client/module bundles.
+client bundles.

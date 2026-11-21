@@ -40,10 +40,11 @@ AV1 requires a compatible Iris driver; see the setup guide below.</sup>
 ## Steam Frame AV1: CI-built packages
 
 Start with the **[CI-built package setup guide](docs/steam-frame-av1-guide.md)**
-and download a matching server, ARM64 client and patched Iris module from
+and download a matching server and ARM64 client from
 [Patola/WiVRn Releases](https://github.com/Patola/WiVRn/releases). The guide
-covers installation, the Steam shortcut, temporary driver loading, pairing
-and stock-driver restoration.
+covers installation, the Steam shortcut, pairing and the 90 Hz setting.
+Use SteamOS's stock AV1-capable Iris driver. The custom kernel module has
+been retired because it can conflict with Steam Link on current SteamOS.
 
 For local builds, use **[Local compilation (alternative)](docs/steam-frame-av1-building.md)**,
 which retains all dependency, clone and build instructions.
@@ -150,7 +151,8 @@ See [building](docs/building.md) for building the [dashboard](docs/building.md#d
 
 For Steam Frame AV1, start with the [CI-built package setup guide](docs/steam-frame-av1-guide.md).
 The [local-compilation alternative](docs/steam-frame-av1-building.md) covers
-building this fork's server, ARM64 client and matching Iris module yourself.
+building this fork's server and ARM64 client yourself, using SteamOS's stock
+AV1-capable Iris driver.
 
 
 # Configuration

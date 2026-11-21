@@ -1,64 +1,38 @@
 # Steam Frame AV1: local compilation (alternative)
 
 This guide builds Patola's WiVRn branch on an **x86-64 Linux PC**, copies a
-Linux ARM64 client and a patched Iris decoder module to a Steam Frame, and
-connects them over the network. The server uses Vulkan Video AV1 encoding;
+Linux ARM64 client to a Steam Frame, and connects them over the network.
+The server uses Vulkan Video AV1 encoding;
 the Frame uses its Qualcomm hardware decoder through V4L2/Iris.
 
 Start with the [CI-built package setup guide](https://github.com/Patola/WiVRn/blob/codex/quest-v29-latency/docs/steam-frame-av1-guide.md)
 for ready-to-use downloads. Follow the instructions below when you want to
-compile the server, ARM64 client and patched module locally instead.
+compile the server and ARM64 client locally instead.
 
-There are three separate builds:
+There are two separate builds:
 
 | Build | Runs on | Purpose |
 | --- | --- | --- |
 | WiVRn server and OpenXR runtime | Linux PC, x86-64 | Render VR applications and encode AV1 |
 | WiVRn client | Steam Frame, ARM64 | Receive the stream and display VR |
-| Patched Iris kernel module | Steam Frame, ARM64 | Expose hardware AV1 decoding to the client |
 
 The client bundle includes `bin/`, `lib/` and `share/`. Its `lib/` contains
 the OpenXR loader, not a software AV1 decoder. Keep all three directories.
 
 Navigation: [PC server](#5-compile-and-install-the-pc-server),
 [ARM64 client](#6-compile-the-arm64-client-on-the-pc),
-[Iris module](#7-compile-the-arm64-iris-module-on-the-pc),
-[Steam shortcut](#10-add-the-client-as-a-non-steam-game-on-the-frame),
-[temporary activation](#11-temporarily-replace-the-loaded-iris-module),
-[connection](#13-launch-on-the-frame-pair-and-connect),
-[restoration](#15-restore-the-original-driver).
+[Steam shortcut](#9-add-the-client-as-a-non-steam-game-on-the-frame),
+[connection](#11-launch-on-the-frame-pair-and-connect).
 
 ## 1. Check whether your Frame matches the tested system
 
 SteamOS **0.5.10**, build `20261118.6185655`, kernel
 **`7.2.0-g04c7e99cb73a`**, now has native AV1 support through `qcom_iris`.
-This client has streamed AV1 successfully with that stock driver. The older
-module below is unnecessary and incompatible with that kernel. To use the
-native driver, follow the [package setup guide](steam-frame-av1-guide.md),
-skipping its module steps; the server and client compilation instructions
-in this guide remain applicable.
-
-The module builder in this branch is **specific to this kernel and
-configuration**, tested on November 16, 2026:
-
-| Component | Tested version |
-| --- | --- |
-| SteamOS | 0.5.9, build `20261113.6134720` |
-| Architecture | `aarch64` |
-| Kernel | `7.2.0-g344f27110f05` |
-| SHA-256 of decompressed `/proc/config.gz` | `55a25adc47f0692b0aab337cf30b339a6b6ba0a899d30be05b83914b0754d4d0` |
-| Existing decoder firmware | `qcom/vpu/vpu33_4v.mbn` |
-
-Do not load this module on another kernel, including the original proof of
-concept's 6.18 kernel. A different release needs matching source, headers,
-configuration and a separately validated build. Do not bypass checks with
-force-loading options.
-
-This is experimental kernel code. A fault can require a physical power
-cycle. Loading is temporary: the instructions do not replace installed
-modules, firmware, boot configuration or the initramfs. Rebooting restores
-the installed driver. The temporary loader below also provides a live
-restore command.
+This client has streamed AV1 successfully with that stock driver. Use an
+AV1-capable SteamOS release and keep its stock driver. The custom module is
+retired because it can conflict with Steam Link on current SteamOS; this
+branch no longer builds, loads or packages it. If you previously loaded our
+temporary module, reboot the Frame and stop using the old loader.
 
 You also need a PC GPU and driver that support **Vulkan Video AV1 encoding**.
 AV1 decoding support on a GPU does not imply AV1 encoding support. The tested
@@ -94,15 +68,13 @@ ssh "$FRAME_USER@$FRAME_HOST"
 ```bash
 uname -m
 uname -r
-gzip -dc /proc/config.gz | sha256sum
-modinfo -n iris
+modinfo -n qcom_iris
 v4l2-ctl -d /dev/video-dec0 --list-formats-out
 ```
 
-Check the architecture, release and configuration hash against step 1.
-The stock driver on the tested release offered H264, HEVC and VP90, without
-`AV01`. If a newer stock driver already offers AV1, stop and reassess whether
-this workaround is needed instead of replacing that driver.
+Check for architecture `aarch64` and coded format `AV01`. The stock driver
+also needs linear NV12 capture for AV1. If AV1 is absent, update SteamOS
+before continuing; do not load an old custom module.
 
 Return to the PC terminal:
 
@@ -129,7 +101,7 @@ installation need newer build dependencies before these commands will work.
 
 ```bash
 sudo pacman -S --needed base-devel git cmake ninja pkgconf curl openssh \
-    podman kmod zstd xz libcap boost boost-libs systemd-libs vulkan-headers vulkan-icd-loader \
+    podman xz libcap boost boost-libs systemd-libs vulkan-headers vulkan-icd-loader \
     vulkan-tools glslang spirv-tools ffmpeg libva x264 avahi eigen \
     nlohmann-json cli11 glib2 libnotify libarchive libpng librsvg \
     pipewire libdrm libusb libx11 libxrandr libxcb wayland \
@@ -144,7 +116,7 @@ Install the Vulkan driver appropriate for your GPU as well, for example
 ```bash
 sudo apt update
 sudo apt install build-essential git cmake ninja-build pkg-config curl \
-    openssh-client podman kmod zstd xz-utils libcap2-bin libsystemd-dev \
+    openssh-client podman xz-utils libcap2-bin libsystemd-dev \
     libboost-all-dev libvulkan-dev vulkan-tools glslang-tools spirv-tools \
     libavcodec-dev libavutil-dev libswscale-dev libavfilter-dev \
     libva-dev libx264-dev libavahi-client-dev libavahi-glib-dev \
@@ -186,8 +158,7 @@ git rev-parse HEAD
 ```
 
 Build both WiVRn executables from this checkout. Do not mix an old official
-client or server with an arbitrary development revision. The module has its
-own pinned kernel-source revision, selected by its build script.
+client or server with an arbitrary development revision.
 
 Keep this PC terminal open. Subsequent PC commands assume this checkout is
 the current directory, unless a step explicitly changes directories. If you
@@ -304,71 +275,30 @@ test -d build-frame-client/install/usr/share/wivrn/assets
 `file` should identify an **ARM aarch64** Linux executable. This is not an APK.
 Do not try to run it directly on the x86-64 PC.
 
-## 7. Compile the ARM64 Iris module on the PC
+## 7. Package and transfer the client
 
-Use a new build directory:
-
-```bash
-WIVRN_BUILD_JOBS=8 \
-    ./tools/build-steam-frame-iris-av1.sh build-frame-iris
-
-modinfo build-frame-iris/artifacts/iris-av1.ko
-```
-
-The script fetches pinned kernel sources, the AV1 patch, matching SteamOS
-headers and an ARM64 cross-compiler. It checks archive/patch checksums and
-preserves the header configuration and `Module.symvers`. It builds only Iris.
-It does not contact or change your Frame.
-
-Expected module name: `iris`. Expected vermagic:
-
-```text
-7.2.0-g344f27110f05 SMP preempt mod_unload aarch64
-```
-
-A compiler-version warning (GCC 15.1.0 versus Valve's 15.2.1) and skipped
-optional BTF generation are expected for this build. A checksum, compilation
-or ABI-check failure is not expected; stop rather than ignoring it.
-
-## 8. Prepare the temporary loader and transfer bundles
-
-The module builder includes `iris-av1-session.sh` and its checksum in the
-artifact directory. Review [the loader source](https://github.com/Patola/WiVRn/blob/codex/quest-v29-latency/tools/steam-frame-iris-av1-session.sh)
-before running it as root. It saves the stock module checksum and rebind
-service state, loads only a checked matching module, and provides `restore`.
-
-Package the complete client tree and the complete module directory:
+Package the complete client tree:
 
 ```bash
 mkdir -p build-frame-packages
 git rev-parse HEAD > build-frame-client/install/usr/WIVRN-SOURCE-REVISION
-git rev-parse HEAD > build-frame-iris/artifacts/WIVRN-SOURCE-REVISION
-(
-    cd build-frame-iris/artifacts
-    sha256sum WIVRN-SOURCE-REVISION >> SHA256SUMS
-    sha256sum --check SHA256SUMS
-)
-
 tar -cJf build-frame-packages/wivrn-frame-client.tar.xz \
     -C build-frame-client/install/usr .
-tar -cJf build-frame-packages/iris-av1-module.tar.xz \
-    -C build-frame-iris/artifacts .
 (
     cd build-frame-packages
-    sha256sum wivrn-frame-client.tar.xz iris-av1-module.tar.xz > SHA256SUMS
+    sha256sum wivrn-frame-client.tar.xz > SHA256SUMS
 )
 
 ssh "$FRAME_USER@$FRAME_HOST" 'mkdir -p "$HOME/mystuff/wivrn-av1-downloads"'
 scp build-frame-packages/wivrn-frame-client.tar.xz \
-    build-frame-packages/iris-av1-module.tar.xz \
     build-frame-packages/SHA256SUMS \
     "$FRAME_USER@$FRAME_HOST:~/mystuff/wivrn-av1-downloads/"
 ```
 
 These manifests detect accidental corruption; they are not publisher
-signatures. The module builder also verifies its pinned upstream inputs.
+signatures.
 
-## 9. Extract the bundles on the Frame
+## 8. Extract the client on the Frame
 
 **From the PC:**
 
@@ -385,22 +315,20 @@ cd "$HOME/mystuff/wivrn-av1-downloads"
 sha256sum --check SHA256SUMS
 
 test ! -e "$HOME/mystuff/wivrn-av1"
-test ! -e "$HOME/mystuff/iris-av1"
-mkdir -p "$HOME/mystuff/wivrn-av1" "$HOME/mystuff/iris-av1"
+mkdir -p "$HOME/mystuff/wivrn-av1"
 tar -xJf wivrn-frame-client.tar.xz -C "$HOME/mystuff/wivrn-av1"
-tar -xJf iris-av1-module.tar.xz -C "$HOME/mystuff/iris-av1"
 
 file "$HOME/mystuff/wivrn-av1/bin/wivrn"
 cat "$HOME/mystuff/wivrn-av1/WIVRN-SOURCE-REVISION"
 )
 ```
 
-If either `test ! -e` fails, stop: a previous test directory exists. Close its
+If `test ! -e` fails, stop: a previous test directory exists. Close its
 client and preserve or rename the directory before extracting a replacement.
 Do not merge different builds' `bin/`, `lib/` and `share/` directories. The
 separate `wivrn-av1` path lets you keep a regular client alongside this one.
 
-## 10. Add the client as a non-Steam game on the Frame
+## 9. Add the client as a non-Steam game on the Frame
 
 Use the Steam desktop interface **on the Frame**:
 
@@ -437,42 +365,9 @@ environment. Do not launch a PC copy or select Steam Link streaming instead.
 Valve documents the basic shortcut procedure in
 [Add Non-Steam Games to a Library](https://help.steampowered.com/en/faqs/view/4B8B-9697-2338-40EC).
 
-Do not launch the client yet: activate the decoder module first.
+The client uses the stock SteamOS decoder; no driver swap is needed.
 
-## 11. Temporarily replace the loaded Iris module
-
-Close WiVRn, Steam Link and video playback on the Frame. The module must have
-zero users. Keep the SSH session available for restoration.
-
-**In the Frame SSH session:**
-
-```bash
-bash "$HOME/mystuff/iris-av1/iris-av1-session.sh" check \
-    "$HOME/mystuff/iris-av1/iris-av1.ko"
-```
-
-Only after the checks pass:
-
-```bash
-sudo bash "$HOME/mystuff/iris-av1/iris-av1-session.sh" load \
-    "$HOME/mystuff/iris-av1/iris-av1.ko"
-```
-
-The helper performs the equivalent of `rmmod iris` followed by `insmod` of
-the staged patched module, with checks and recovery around those operations.
-It temporarily stops `iris-driver-rebind.service` if it was active. That
-service stays stopped during the patched session and its previous active
-state is restored by the helper's `restore` command.
-
-Successful output must include coded format **`AV01`** and decoded format
-**`NV12`**, followed by confirmation that the installed module file is
-unchanged. Do not continue if the module fails to load or lacks either format.
-If a check fails after insertion, use step 15 to restore the stock module.
-
-Never use `rmmod -f`, `modprobe --force` or a forced vermagic override. If Iris
-is busy, close the application holding it; do not force unloading it.
-
-## 12. Configure and start the PC server
+## 10. Configure and start the PC server
 
 **Back in a PC terminal**, create a separate test configuration. This preserves
 your normal `config.json`. An existing test configuration is backed up first.
@@ -494,7 +389,7 @@ cat > "$HOME/.config/wivrn/frame-av1.json" <<'WIVRN_CONFIG'
 WIVRN_CONFIG
 ```
 
-The Frame workaround currently supports **8-bit AV1/NV12**. Do not force
+The Frame client currently supports **8-bit AV1/NV12**. Do not force
 10-bit AV1 for this test. Vulkan AV1 must be selected explicitly.
 
 Stop any other WiVRn server first, including one launched by Envision or a
@@ -560,12 +455,11 @@ Steam runtime. See the branch's
 [OpenVR/Steam notes](https://github.com/Patola/WiVRn/blob/codex/quest-v29-latency/docs/steamvr.md).
 These are separate from enabling AV1.
 
-## 13. Launch on the Frame, pair and connect
+## 11. Launch on the Frame, pair and connect
 
 1. Put on the Frame and start **WiVRn AV1** from its Steam library.
 2. Complete initial setup and permissions if prompted.
 3. In WiVRn's streaming settings, select **AV1**. Begin at **50 Mbit/s**.
-   The driver must have been loaded before this client process started.
 4. Connect to the PC. The shortcut supplies its address; if it does not
    connect automatically, select the server or enter the same LAN address
    in the client UI.
@@ -581,7 +475,7 @@ headers, reports its output format and creates capture buffers. Remaining
 on a waiting-for-application screen can instead mean no PC VR application
 has started; check the server terminal.
 
-## 14. Verify that AV1 hardware decoding is actually in use
+## 12. Verify that AV1 hardware decoding is actually in use
 
 The **PC server** should list the selected encoder as something like:
 
@@ -629,49 +523,20 @@ grep -E 'Selected display mode|Prop_DisplayFrequency_Float' \
 Use the mode selected after WiVRn launches; the dashboard can run at 90 Hz
 before the application starts.
 
-## 15. Restore the original driver
+## 13. Later sessions, updates and troubleshooting
 
-Close the WiVRn client and other video applications first. Then, **on the
-Frame**:
-
-```bash
-sudo bash "$HOME/mystuff/iris-av1/iris-av1-session.sh" restore
-```
-
-This unloads idle patched Iris, runs `modprobe iris` to reload the unchanged
-installed module, restores the rebind service's previous active state, and
-checks the original module file's checksum. It keeps session diagnostics
-under `/run/wivrn-iris-av1.restored.*` until the next reboot.
-
-Alternatively, reboot the Frame:
-
-```bash
-sudo reboot
-```
-
-The patched module is not installed persistently. After reboot, the stock
-driver loads normally. If the kernel hangs and SSH does not respond, use a
-physical power cycle. Shell traps cannot recover a hung kernel.
-
-Stop the PC server with **Ctrl+C** in its terminal when finished. Keep your
-existing normal WiVRn shortcut available for use with the stock driver.
-
-## 16. Later sessions, updates and troubleshooting
-
-- **After a Frame reboot:** close video apps, repeat the module `check` and
-  `load` commands, then launch WiVRn AV1 through Steam. Restart the client
-  after every driver change because codec capabilities are cached.
-- **After a SteamOS update:** repeat step 1. A new kernel requires a new,
-  matching module build/port. Do not reuse this module just because the
-  filename or architecture looks right.
+- **After a Frame reboot:** launch WiVRn AV1 through Steam. The stock driver
+  provides AV1; no module-loading commands are needed.
+- **After a SteamOS update:** repeat the read-only decoder checks in step 2
+  if AV1 is missing, and completely restart WiVRn to refresh its capabilities.
 - **After updating the WiVRn branch:** rebuild the full server/runtime and
   ARM64 client from the same checkout, then transfer the complete client
-  tree. The module follows the kernel, not WiVRn's protocol revision.
+  tree.
 - **`build.ninja` missing:** find the first CMake configure error. Repeat the
   configure command successfully before invoking the build. Do not use
   a shared directory for the native server and ARM client.
 - **AV1 is missing in the client:** confirm `AV01` and linear `NV12`, then
-  completely quit and relaunch the patched client. Verify that the Steam
+  completely quit and relaunch the client. Verify that the Steam
   shortcut points at `wivrn-av1/bin/wivrn` rather than an older installation.
 - **Wrong ELF architecture or an OpenXR loader failure:** check that the
   executable is ARM64, its `lib/` is beside `bin/`, and it is launched locally
@@ -691,17 +556,8 @@ existing normal WiVRn shortcut available for use with the stock driver.
   and network throughput. The original severe-lag incident was resolved by
   restarting the router. Brief hiccups occurred with multiple codecs; the
   collected logs do not establish one universal cause.
-- **Load failure:** use `restore` or reboot before retrying. Do not work
-  around failed kernel, configuration, checksum or busy-module checks.
 
 ## Sources and tested scope
-
-The kernel workaround originates in
-[mmis1000's Iris AV1 proof of concept](https://github.com/mmis1000/steamframe-iris-av1-poc).
-This branch's builder pins patch commit
-`c2df9372d76a8ffbcf6c987ef980f9acf35d8e53` and ports its build inputs to kernel
-source `344f27110f059d0520c9dbbafc503d4bbc6c1f68`. It retains the patch's
-copyright and license attribution.
 
 The ARM64 SDK tag and client build preset come from this branch's
 [Steam Frame CI job](https://github.com/Patola/WiVRn/blob/codex/quest-v29-latency/.github/workflows/Build.yml).

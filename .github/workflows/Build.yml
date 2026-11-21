@@ -206,38 +206,6 @@ jobs:
         if-no-files-found: error
         retention-days: 30
 
-  build-iris-av1:
-    name: Steam Frame Iris AV1 (kernel 7.2.0-g344f27110f05)
-    runs-on: ubuntu-24.04
-    if: github.repository == 'Patola/WiVRn' && github.ref == 'refs/heads/codex/quest-v29-latency'
-    permissions:
-      contents: read
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-    - name: Install module build tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential git curl kmod zstd xz-utils shellcheck
-    - name: Check module scripts
-      run: |
-        bash -n tools/build-steam-frame-iris-av1.sh tools/steam-frame-iris-av1-session.sh tools/package-steam-frame-av1.sh
-        shellcheck tools/build-steam-frame-iris-av1.sh tools/steam-frame-iris-av1-session.sh tools/package-steam-frame-av1.sh
-    - name: Build the pinned kernel module
-      env:
-        WIVRN_BUILD_JOBS: '4'
-      run: tools/build-steam-frame-iris-av1.sh build-frame-iris
-    - name: Package the checked module and temporary loader
-      run: tools/package-steam-frame-av1.sh iris build-frame-iris/artifacts av1-dist
-    - name: Upload Iris bundle
-      uses: actions/upload-artifact@v7
-      with:
-        name: wivrn-av1-iris-module
-        path: av1-dist/*.tar.xz
-        if-no-files-found: error
-        retention-days: 30
-
   build-server-flatpak:
     name: Linux server (flatpak)
     runs-on: ubuntu-24.04
@@ -320,7 +288,7 @@ jobs:
 
   publish-av1:
     name: Publish Steam Frame AV1 downloads
-    needs: [build-steam-frame, build-server-flatpak, build-iris-av1]
+    needs: [build-steam-frame, build-server-flatpak]
     runs-on: ubuntu-24.04
     if: >-
       github.repository == 'Patola/WiVRn' &&
@@ -336,10 +304,6 @@ jobs:
     - uses: actions/download-artifact@v8
       with:
         name: wivrn-av1-frame-client
-        path: av1-release
-    - uses: actions/download-artifact@v8
-      with:
-        name: wivrn-av1-iris-module
         path: av1-release
     - uses: actions/download-artifact@v8
       with:
@@ -364,7 +328,7 @@ jobs:
         {
           echo '### Steam Frame AV1 downloads'
           echo "https://github.com/$GH_REPO/releases/tag/$tag"
-          echo 'Server, ARM64 client and kernel-specific Iris module are built from the same WiVRn commit.'
+          echo 'Server and ARM64 client are built from the same WiVRn commit. Use the stock SteamOS AV1 driver.'
         } >> "$GITHUB_STEP_SUMMARY"
 
   build-android:
