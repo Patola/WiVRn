@@ -390,8 +390,10 @@ cat > "$HOME/.config/wivrn/frame-av1.json" <<'WIVRN_CONFIG'
 WIVRN_CONFIG
 ```
 
-The Frame client currently supports **8-bit AV1/NV12**. Do not force
-10-bit AV1 for this test. Vulkan AV1 must be selected explicitly.
+This example requests **8-bit AV1/NV12** for an initial test. To let the
+headset choose the bit depth, remove `"bit-depth": 8` and the comma preceding
+it, then enable **10-bit color** in the headset's AV1 settings if it appears.
+Vulkan AV1 must be selected explicitly on the server.
 
 Stop any other WiVRn server first, including one launched by Envision or a
 dashboard. Use that application's normal Stop control. Only one should own
@@ -487,7 +489,7 @@ vulkan (av1 8-bit)
 **In a Frame SSH session:**
 
 ```bash
-grep -Ei 'Starting WiVRn|V4L2 iris|source change|NV12|refresh rate|failed|exception|error' \
+grep -Ei 'Starting WiVRn|V4L2 iris|source change|NV12|P010|refresh rate|failed|exception|error' \
     "$HOME/frame-av1.log"
 dmesg -T | tail -n 80
 ```
@@ -498,6 +500,9 @@ Successful logs include:
 V4L2 iris decoder source change; configuring DMA-buf CAPTURE queue
 V4L2 iris DMA-buf capture: ... NV12 (8-bit) ...
 ```
+
+With 10-bit enabled, look for `vulkan (av1 10-bit)` on the server and
+`P010 (10-bit)` on the Frame.
 
 Together, an AV1 encoder on the PC, Iris capture on the Frame and a working
 image demonstrate the hardware path. Merely seeing `AV01` in a format list

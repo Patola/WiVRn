@@ -30,8 +30,8 @@ Download the server and client from **the same release**, plus `SHA256SUMS`.
 
 The server requires Flatpak with the KDE 6.11 runtime and a GPU/driver with
 Vulkan Video AV1 **encoding** support. Flatpak installs the required runtime;
-it does not add unsupported GPU capabilities. The Frame client uses
-**8-bit AV1**, with hardware decoding through Iris and linear NV12 output.
+it does not add unsupported GPU capabilities. The Frame client decodes AV1
+through Iris, using NV12 for 8-bit and P010 for 10-bit.
 
 The stock Frame driver must expose `AV01` and linear NV12 output. CI builds
 and checks the server/client packages; it does not perform hardware streaming
@@ -168,11 +168,13 @@ from a second **PC** terminal:
 flatpak run --branch=av1 --command=wivrnctl io.github.wivrn.wivrn pair --duration 5
 ```
 
-Start your PC VR application. Then verify the PC log selects `vulkan (av1
-8-bit)` and the Frame log shows `V4L2 iris DMA-buf capture` with `NV12 (8-bit)`:
+Start your PC VR application. If your client offers **10-bit color** when
+you select AV1, you can enable it before connecting. Check the server log
+for `vulkan (av1 10-bit)` and the Frame log for `P010 (10-bit)`. For an
+8-bit stream, expect `vulkan (av1 8-bit)` and `NV12 (8-bit)`:
 
 ```bash
-grep -Ei 'V4L2 iris|NV12|failed|exception|error' "$HOME/frame-av1.log"
+grep -Ei 'V4L2 iris|NV12|P010|failed|exception|error' "$HOME/frame-av1.log"
 ```
 
 Raise bitrate gradually once stable.

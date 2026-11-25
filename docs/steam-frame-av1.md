@@ -25,7 +25,8 @@ A subsequent beta update installed SteamOS **0.5.10**, build
 `20261118.6185655`, with kernel **`7.2.0-g04c7e99cb73a`**. Its signed stock
 module is **`qcom_iris`** (`qcom-iris.ko`), rather than the old `iris` module.
 It enumerates `AV01`, accepts AV1 format selection, and offers linear NV12
-and P010 capture formats. WiVRn still negotiates its validated 8-bit AV1 path.
+and P010 capture formats. Direct V4L2 decoding of a 10-bit AV1 sample returned
+P010 pixels that matched the software decode.
 
 No patched module was loaded on this kernel. The existing custom ARM64
 client produced two `V4L2 iris DMA-buf capture` queues with `NV12 (8-bit)`,
@@ -57,14 +58,12 @@ FFmpeg decoder paths are unchanged.
   support continue to advertise the supported HEVC/H.264 choices.
 - Parse the AV1 sequence headers on OUTPUT before creating/starting CAPTURE,
   as the existing HEVC path already does.
-- Request linear NV12 after SOURCE_CHANGE. Qualcomm's compressed Q08C cannot
-  be used by this Vulkan import path.
+- After SOURCE_CHANGE, select linear NV12 or P010 based on the decoded bit
+  depth. The Vulkan import path uses these linear formats.
 - Recycle empty CAPTURE buffers without displaying old pixels or consuming
   the pending frame's metadata.
-- Advertise **8-bit AV1 only**. This remains the validated client path even
-  though newer drivers also offer P010. Server capability negotiation selects
-  8-bit for the Frame even if the server normally uses 10-bit with another
-  headset.
+- Advertise 10-bit AV1 when Iris accepts single-plane P010 after selecting
+  AV1. Drivers that offer only linear NV12 continue to negotiate 8-bit.
 - Bundle the built OpenXR loader with ARM64 V4L2 installations and use a
   relative library search path. Assets and libraries remain inside the
   extracted client directory.

@@ -38,8 +38,8 @@ WiVRn Steam Frame AV1 client (Linux ARM64).
 Keep bin, lib and share together. Add bin/wivrn as a native non-Steam game
 on the Frame and launch it there through Steam, without Proton.
 The bundled lib/ is the OpenXR loader; AV1 hardware decoding uses Iris.
-Use SteamOS's stock Iris driver with AV01 and linear NV12 support. This
-client supports 8-bit AV1 and does not modify or load drivers.
+Use SteamOS's stock Iris driver with AV01 and linear NV12 support.
+10-bit AV1 requires linear P010 support from the driver.
 The old custom kernel module is retired; do not load it on current SteamOS.
 See AV1-QUICKSTART.md in the release for setup instructions.
 EOF

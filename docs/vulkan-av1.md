@@ -25,7 +25,7 @@ for wider streams and custom level/tier updates is no longer part of this
 branch. Use the capabilities of the current upstream implementation when
 choosing stream layouts and settings.
 
-The branch adds stateful V4L2 AV1 decoding on the Frame with 8-bit NV12 output,
+The branch adds stateful V4L2 AV1 decoding on the Frame with NV12 or P010 output,
 an ARM64 bundle with an OpenXR loader, and VAAPI encoder reconfiguration when
 the bitrate or refresh rate changes during a session. It also includes
 optional Quest Wi-Fi lock diagnostics, an ARM64 build toolchain, and a release

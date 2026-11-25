@@ -627,11 +627,9 @@ void decoder::setup_capture_queue()
 	fmt.type = capture_type;
 	ioctl_or_throw(fd.get_fd(), VIDIOC_G_FMT, &fmt, "VIDIOC_G_FMT(CAPTURE)");
 
-	// AV1 uses linear NV12; upstream also negotiates linear output for HEVC.
-	// Compressed Qualcomm formats cannot be imported by this path.
+	// Use the bit depth reported by Iris and select a linear format Vulkan can import.
 	const uint32_t current = fmt.fmt.pix_mp.pixelformat;
-	const bool ten_bit = codec_type != wivrn::video_codec::av1 &&
-	                     (current == V4L2_PIX_FMT_P010 || current == V4L2_PIX_FMT_QC10C);
+	const bool ten_bit = current == V4L2_PIX_FMT_P010 || current == V4L2_PIX_FMT_QC10C;
 	const uint32_t wanted = ten_bit && supports_p010_capture(fd.get_fd()) ? V4L2_PIX_FMT_P010 : V4L2_PIX_FMT_NV12;
 	if (current != wanted)
 	{
@@ -1090,10 +1088,6 @@ bool decoder::available_for(wivrn::video_codec codec)
 
 bool decoder::supports_10bit(wivrn::video_codec codec)
 {
-	// The AV1 workaround exposes linear NV12 and compressed TP10C, not
-	// linear P010. Do not negotiate 10-bit until its import path is supported.
-	if (codec == wivrn::video_codec::av1)
-		return false;
 	try
 	{
 		auto device = find_device(codec);
