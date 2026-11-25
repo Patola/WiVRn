@@ -12,7 +12,7 @@ and the installed Envision WiVRn prefix are unchanged.
 
 Upstream merged Vulkan AV1 in
 [`04837ba2`](https://github.com/WiVRn/WiVRn/commit/04837ba215b90fae63fa49d4166f54cd364e536b).
-This branch now merges that upstream revision and uses its Vulkan encoder,
+This branch uses the upstream Vulkan encoder,
 including the shared H.264/H.265 encoder interfaces and capability probing.
 The previous local AV1 changes, level/tier helper and its standalone tests
 were removed in favor of upstream's implementation.
@@ -25,10 +25,16 @@ for wider streams and custom level/tier updates is no longer part of this
 branch. Use the capabilities of the current upstream implementation when
 choosing stream layouts and settings.
 
-The Frame's V4L2 AV1 decoder support, bundled ARM64 OpenXR loader, VAAPI live
-reconfiguration fix, Boost.Locale build fix and server/client release workflow
-remain because these changes are not in the synchronized upstream revision.
-No wire-protocol change is introduced by this synchronization.
+The branch adds stateful V4L2 AV1 decoding on the Frame with 8-bit NV12 output,
+an ARM64 bundle with an OpenXR loader, and VAAPI encoder reconfiguration when
+the bitrate or refresh rate changes during a session. It also includes
+optional Quest Wi-Fi lock diagnostics, an ARM64 build toolchain, and a release
+workflow and guides for the server and Frame client.
+
+The synchronization through upstream `2529e0bf` takes the Simplified Chinese
+translation update and uses upstream's `dd472aee` CMake workaround for the
+Boost.Locale build failure. The previous fork-specific Boost patch was
+removed. The wire protocol is unchanged by this synchronization.
 
 ## Build and configuration
 

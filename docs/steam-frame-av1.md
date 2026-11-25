@@ -6,17 +6,14 @@ For cloning and building the server and ARM64 client yourself, use
 [Local compilation (alternative)](steam-frame-av1-building.md).
 This page records implementation details and test results.
 
-This work stays on `codex/quest-v29-latency`. Upstream `master` was merged
-through `04837ba2`, including upstream's Vulkan AV1 encoder and replacement
-of custom pose bitcasts with `std::bit_cast`. The Vulkan encoder now follows
-upstream rather than the earlier local variant; see
-[the synchronization notes](vulkan-av1.md#source-and-changes).
-The Frame AV1 decoder and VAAPI reconfiguration fix are retained.
-The translation branch is unchanged. The new local Envision profile uses
-`WIVRN_USE_SYSTEM_BOOST=ON`. The earlier bundled Boost.Locale configuration
-failure left an incomplete build directory without `build.ninja`; this
-branch now backports the upstream source-group fix for CMake 4.5 so bundled
-Boost builds work as well.
+This work stays on `codex/quest-v29-latency`. The branch uses upstream's
+Vulkan AV1 encoder and retains the Frame AV1 decoder and VAAPI reconfiguration
+fix. See [the synchronization notes](vulkan-av1.md#source-and-changes).
+
+The local Envision profile uses `WIVRN_USE_SYSTEM_BOOST=ON`. With bundled
+Boost, use a revision that includes upstream's `dd472aee` workaround for
+the Boost.Locale `source_group` error under CMake 4.5. The earlier configure
+failure left an incomplete build directory without `build.ninja`.
 
 ## Use the stock SteamOS AV1 driver
 

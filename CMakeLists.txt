@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.28)
 project(WiVRn VERSION 0.0.0 LANGUAGES C CXX)
 
+# Workaround for boost CMake error
+function(source_group)
+endfunction()
+
 # Set default for FetchContent projects
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
@@ -241,10 +245,8 @@ if (WIVRN_BUILD_WIVRNCTL)
 endif()
 
 # Common dependencies
-file(GLOB BOOST_PATCHES CONFIGURE_DEPENDS patches/boost/*.patch)
 FetchContent_Declare(boost         EXCLUDE_FROM_ALL SYSTEM URL https://github.com/boostorg/boost/releases/download/boost-1.89.0/boost-1.89.0-cmake.tar.xz
-                                   URL_HASH SHA256=67acec02d0d118b5de9eb441f5fb707b3a1cdd884be00ca24b9a73c995511f74
-                                   PATCH_COMMAND ${CMAKE_CURRENT_LIST_DIR}/patches/apply.sh ${BOOST_PATCHES})
+                                   URL_HASH SHA256=67acec02d0d118b5de9eb441f5fb707b3a1cdd884be00ca24b9a73c995511f74)
 
 # Client dependencies
 FetchContent_Declare(simdjson      EXCLUDE_FROM_ALL SYSTEM URL https://github.com/simdjson/simdjson/archive/refs/tags/v4.2.2.tar.gz
