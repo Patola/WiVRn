@@ -254,7 +254,7 @@ std::vector<wivrn::steam::application> read_appinfo(std::filesystem::path root, 
 		void clear()
 		{
 			section.clear();
-			current.icon.clear();
+			current.icon.reset();
 			current.name.clear();
 			current.url.clear();
 			clienticon.clear();

@@ -35,7 +35,7 @@ public:
 		// localised names, with empty locale for default
 		std::unordered_map<std::string, std::string> name;
 		std::string url;
-		std::filesystem::path icon;
+		std::optional<std::filesystem::path> icon;
 	};
 
 private:
